@@ -1,0 +1,78 @@
+body {
+	font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif;
+	font-size: 14px;
+	line-height: 20px;
+	color: #212529;
+	max-width: 680px;
+	margin: 20px auto;
+}
+
+table {
+	border-collapse: collapse;
+	margin-bottom: 40px;
+}
+
+table th,
+table td {
+	text-align: right;
+	padding: 6px 8px 5px 8px;
+	border-bottom: 1px solid #e9ecef;
+}
+
+table thead th:first-child,
+table tbody td:first-child,
+table thead th:nth-child(2),
+table tbody td:nth-child(2) {
+	text-align: left;
+}
+
+table td .player-jersey {
+	display: inline-block;
+	vertical-align: top;
+	width: 28px;
+}
+
+table td .player-name {
+	display: inline-block;
+	vertical-align: top;
+	text-transform: capitalize;
+}
+
+table td .player-position {
+	display: inline-block;
+	vertical-align: top;
+	text-transform: uppercase;
+}
+
+table td .badge {
+	display: inline-block;
+	vertical-align: top;
+	text-transform: uppercase;
+	text-align: center;
+	border-radius: 50%;
+	border: 1px solid #fff;
+	margin: 2px 2px 2px 0;
+	line-height: 16px;
+	width: 16px;
+}
+
+table td .ev_ig,
+table td .pp_ig,
+table td .sh_ig {
+	background: #ffe066;
+	border-color: #ffe066;
+}
+
+table td .ev_ia,
+table td .pp_ia,
+table td .sh_ia {
+	background: #c0eb75;
+	border-color: #c0eb75;
+}
+
+table td .pp_ig,
+table td .sh_ig,
+table td .pp_ia,
+table td .sh_ia {
+	border-color: #343a40;
+}

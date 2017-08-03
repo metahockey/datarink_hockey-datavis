@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<title>Shot Animation</title>
+	<script src="//cdnjs.cloudflare.com/ajax/libs/d3/3.5.5/d3.min.js"></script>
+	<link href="http://fonts.googleapis.com/css?family=Roboto+Mono" rel="stylesheet" type="text/css">
+	<link rel="stylesheet" type="text/css" href="shot-animation.css">
+</head>
+<body>
+	<svg>
+	</svg>
+	<p id="start" style="margin-top: 100px; background: yellow; cursor: pointer;">Start</p>
+</body>
+<script>
+
+var teams = ["away", "home"];
+var teamNames = ["sjs", "pit"];
+var teamColours = ["red", "blue"];
+
+var shiftData;
+var eventData;
+
+var periodDurs = []; // Index 0 contains the duration of period 1 in seconds
+
+// Load the shift csv
+// Once the shift csv is loaded, load the events csv
+d3.csv("shifts.csv", function(data) {
+		shiftData = data;
+
+		// Load the events csv
+		loadEvents(); 
+	}).row(function(r) {
+		return {
+			"team": r.team,
+			"iceSit": r.iceSit,
+			"period": +r.period,
+			"start": +r.start,
+			"end": +r.end
+		}
+	});
+
+// Function to Load the events csv
+// Once the events csv is loaded, prepareData
+function loadEvents() {
+	d3.csv("events.csv", function(data) {
+		eventData = data;
+
+		// Prepare data
+		prepareData();
+	}).row(function(r) {
+		if (["goal", "shot", "missed_shot", "blocked_shot"].indexOf(r.type) >= 0) {
+
+			var aGoalieCount = 0;
+			if (r.aG != "NULL") { aGoalieCount = 1; }
+
+			var hGoalieCount = 0;
+			if (r.hG != "NULL") { hGoalieCount = 1; }
+
+			return {
+				"type": r.type,
+				"team": r.team,
+				"iceSit": r.iceSit,
+				"period": +r.period,
+				"time": +r.time,
+				"aSkaters": +r.aSkaters,
+				"hSkaters": +r.hSkaters,
+				"aGoalie": aGoalieCount,
+				"hGoalie": hGoalieCount
+			}
+		}
+	});
+}
+
+function prepareData() {
+	
+	//
+	// Get period durations
+	//
+
+	maxPeriod = d3.max(shiftData, function(d) { return d.period; });
+	
+	for (var i = 0; i < maxPeriod; i++) {
+		periodDurs[i] = d3.max(
+				shiftData.filter(function(d) { return d.period === i + 1; }),
+				function(d) { return d.end; }
+			);
+	}
+
+	//
+	// Get the powerplay timepoints
+	//
+
+	aPpTimepoints = [];
+	hPpTimepoints = [];
+
+	for (var i = 0; i < periodDurs.length; i++) {
+		periodShifts = shiftData.filter(function(d) { return d.period === i + 1; });
+
+		// Initialize array of zeros - each index is 1 second of the period
+		// For a 20 minute period, this array has indices 0 to 1199 (20 * 60 - 1)
+		onIcePerSec = [];
+		for (var t = 0; t < periodDurs[i]; t++) {
+			onIcePerSec[t] = 0;
+		}
+
+		// Count the difference in number of players at each second (away - home)
+		// When incrementing counts for a player's shift, we exclude the end time (we stop at end-1)
+		// This prevents double-counting when playerA ends their shift at time t, and playerB starts their shift at time t
+		periodShifts.forEach(function(shift, i) {
+			if (shift.iceSit === "away") {
+				d3.range(shift.start, shift.end).forEach(function(t) {
+					onIcePerSec[t]++;
+				});
+			} else if (shift.iceSit === "home") {
+				d3.range(shift.start, shift.end).forEach(function(t) {
+					onIcePerSec[t]--;
+				});
+			}
+		});
+
+		// Get the total duration of previous periods
+		prevPeriodDurs = 0;
+		for (var j = 0; j < i; j++) {
+			prevPeriodDurs += periodDurs[j];
+		}
+
+		// Add powerplay timepoints to away/home arrays
+		for (var t = 0; t < onIcePerSec.length; t++) {
+			if (onIcePerSec[t] > 0) {
+				aPpTimepoints.push(prevPeriodDurs + t);
+			} else if (onIcePerSec[t] < 0) {
+				hPpTimepoints.push(prevPeriodDurs + t);
+			}
+		}
+	}
+
+	//
+	// Convert the arrays of timepoints into ranges
+	//
+
+	function getRanges(points) {
+		ranges = [];
+		start = points[0];
+		
+		for (var idx = 1; idx < points.length; idx++) {
+			// If the timepoint at idx is not 1 second after the previous timepoint, then a timerange has ended
+			if (points[idx] != points[idx-1] + 1) {
+				ranges.push([start, points[idx-1]]);
+				start = points[idx];
+			} else if (idx === points.length - 1) {
+				// End range if we've reached the end of the timepoints array
+				ranges.push([start, points[idx]]);
+			}
+		}
+		return ranges;
+	}
+
+	aPpRanges = getRanges(aPpTimepoints);
+	hPpRanges = getRanges(hPpTimepoints);
+
+	//
+	// Convert event times from period+elapsed to total elapsed since start of game
+	//
+
+	eventData.forEach(function(ev) {
+		prevPeriodDurs = 0;
+		for (var j = 0; j < ev.period - 1; j++) {
+			prevPeriodDurs += periodDurs[j];
+		}
+		ev.elapsed = prevPeriodDurs + ev.time;
+	});
+
+	appendSvg();
+}
+
+function appendSvg() {
+
+	var margin = { top: 10, right: 20, bottom: 10, left: 20 };
+	var w = 240;
+	var h = 120;
+
+	var coreOffset = 20;
+
+	var netR = 2;
+	var goalieR = 16;
+	var blockR = 32;
+
+	var svg = d3.select("svg")
+		.attr("width", (w + margin.left + margin.right) + "px")
+		.attr("height", (h + margin.top + margin.bottom) + "px")
+		.append("g")
+			.attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+	//
+	//
+	// Append CF% bar
+	//
+	//
+
+	var x = d3.scale.linear()
+		.domain([0, 1])
+		.range([0, w]);
+	var bars = svg.selectAll(".cf")
+		.data([teams[1], teams[0]]);
+	bars.enter().append("rect")
+		.attr("class", function(d) {
+			if (d === "home") { return "cf " + teamColours[1] + " home"; }
+			else { return "cf " + teamColours[0] + " away"; }
+		})
+		.attr("x", x(0))
+		.attr("y", h - 5)
+		.attr("width", function(d, i) {
+			if (d === "home") { return x(1); }
+			else { return x(0.5); }
+		})
+		.attr("height", 5);
+
+	//
+	//
+	// Append cores
+	//
+	//
+
+	var cores = svg.selectAll(".core")
+		.data(teams);
+	cores.enter().append("g")
+		.attr("class", function(d, i) { return "core " + d + " " + teamColours[i]; });
+
+	var goalies = cores.append("circle")
+		.attr("class", "goalie")
+		.attr("cx", function(d, i) {
+			if (i === 1) { return w; }
+			else { return 0; }
+		})
+		.attr("cy", h / 2)
+		.attr("r", goalieR);
+	
+	var blocks = cores.append("circle")
+		.attr("class", "block")
+		.attr("cx", function(d, i) {
+			if (i === 1) { return w; }
+			else { return 0; }
+		})
+		.attr("cy", h / 2)
+		.attr("r", blockR);
+
+	var masks = cores.append("rect")
+		.attr("x", function(d, i) {
+			if (i === 1) { return w; }
+			else { return -margin.left; }
+		})
+		.attr("y", 0)
+		.attr("width", function(d, i) {
+			if (i === 1) { return margin.right; }
+			else { return margin.left; }
+		})
+		.attr("height", h)
+		.style("fill", "white");
+
+	var ppGroup = cores.append("g")
+		.attr("class", function(d) { return "pp " + d; });
+
+	var nets = cores.append("circle")
+		.attr("class", "net")
+		.attr("cx", function(d, i) {
+			if (i === 1) { return w; }
+			else { return 0; }
+		})
+		.attr("cy", h / 2)
+		.attr("r", 4);
+
+	var labels = cores.append("text")
+		.attr("y", 10 + 4)
+		.attr("x", function(d, i) {
+			if (i === 1) { return w; }
+			else { return 0; }
+		})
+		.text(function(d, i) {
+			if (i === 0) {
+				return teamNames[i].toUpperCase() + " 0";
+			} else {
+				return "0 " + teamNames[i].toUpperCase();
+			}
+		})
+		.style("text-anchor", function(d, i) {
+			if (i === 1) {
+				return "end";
+			} else {
+				return "start";
+			}
+		});
+
+	var bolts = cores.append("g")
+		.attr("class", "bolt")
+		.attr("transform", function(d, i) {
+			var dx = 42;
+			if (i === 1) { dx = w - 6 - 42; } // 6 is the width of the bolt
+			return "translate(" + dx + ",2)";
+		});
+	bolts.append("path")
+		.attr("d", "M4.5 6 L8 0 L2 0 L0 8 L2.5 8 L0 16 L8 6 Z")
+		.style("fill", "#fed976")
+		.style("opacity", 0);
+
+	//
+	//
+	// Append powerplays
+	//
+	//
+
+	var ppMarkers = svg.select("g.pp.home").selectAll("circle")
+		.data(hPpRanges);
+	ppMarkers.enter().append("circle")
+		.attr("cx", w);
+	var ppMarkers = svg.select("g.pp.away").selectAll("circle")
+		.data(aPpRanges);
+	ppMarkers.enter().append("circle")
+		.attr("cx", 0);
+	svg.selectAll("g.pp circle")
+		.attr("r", netR)
+		.attr("cy", h / 2);
+
+	//
+	//
+	// Append shots
+	//
+	//
+
+	var shots = svg.selectAll(".shot")
+		.data(eventData);
+	shots.enter().append("circle")
+		.attr("class", function(d) {
+			if (d.team === teamNames[0]) { return "shot " + teamColours[0] + " " + teams[0]; }
+			else { return "shot " + teamColours[1] + " " + teams[1]; }
+		})
+		.attr("r", 2)
+		.attr("cy", h / 2)
+		.style("opacity", 1);
+	svg.selectAll(".shot.away")
+		.attr("cx", 0);
+	svg.selectAll(".shot.home")
+		.attr("cx", w);
+
+	//
+	//
+	// Append clock
+	//
+	//
+
+	var tau = 2 * Math.PI;
+	var arc = d3.svg.arc()
+		.innerRadius(8)
+		.outerRadius(10)
+		.startAngle(0);
+	var clockGroup = svg.append("g")
+		.attr("class", "clock")
+		.attr("transform", "translate(" + (w/2) + ",10)");
+	var clocks = clockGroup.selectAll(".clock")
+		.data(periodDurs.filter(function(d) { return d > 0; }));
+	clocks.enter().append("path")
+		.datum(function(d) { return {endAngle: 0 * tau, duration: d}; })
+		.attr("d", arc)
+		.style("opacity", 0);
+	var clockLabel = clockGroup.append("text")
+		.attr("x", 0)
+		.attr("y", 4)
+		.text("1");
+
+	//
+	//
+	// Animation
+	//
+	//
+
+	var hGoals = 0;
+	var aGoals = 0;
+	var hCf = 0;
+	var aCf = 0;
+
+
+	d3.select("#start").on("click", function() {
+
+		//
+		// Animate clocks
+		//
+
+		clocks.transition().delay(function(d, i) {
+				var totalDelay = 0;
+				var clockPeriod = i + 1;
+				for (var j = 1; j < clockPeriod; j++) {
+					totalDelay += periodDurs[j - 1];
+				}
+				return (totalDelay * 1000) / 200;
+			})
+			.duration(function(d) { return (d.duration * 1000) / 200; })
+			.ease("linear")
+			.call(arcTween, 1 * tau)
+			.each("start", function(d, i) {
+				clockLabel.text(i + 1);
+				d3.select(this).style("opacity", 1);
+			})
+			.each("end", function(d, i) {
+				var numPeriods = periodDurs.filter(function(p) { return p > 0; }).length;
+				if (i + 1 < numPeriods) {
+					d3.select(this).style("opacity", 0);
+				}
+			});
+
+		//
+		// Make powerplay markers appear
+		//
+
+		svg.selectAll(".home g.pp circle").transition()
+			.duration(50)
+			.delay(function(d) { return (d[0] * 1000) / 200; })
+				.style("r", 10)
+				.each("start", function(d) {
+					d3.select(".home.core .bolt path").style("opacity", 1);
+				});
+
+		svg.selectAll(".away g.pp circle").transition()
+			.duration(50)
+			.delay(function(d) { return (d[0] * 1000) / 200; })
+				.style("r", 10)
+				.each("start", function(d) {
+					d3.select(".away.core .bolt path").style("opacity", 1);
+				});
+
+		//
+		// Make powerplay markers disappear
+		//
+
+		svg.selectAll(".home g.pp circle").transition()
+			.duration(50)
+			.delay(function(d) { return (d[1] * 1000) / 200; })
+				.style("r", netR)
+				.each("start", function(d) {
+					d3.select(".home.core .bolt path").style("opacity", 0);
+				});
+
+		svg.selectAll(".away g.pp circle").transition()
+			.duration(50)
+			.delay(function(d) { return (d[1] * 1000) / 200; })
+				.style("r", netR)
+				.each("start", function(d) {
+					d3.select(".away.core .bolt path").style("opacity", 0);
+				});
+
+		//
+		// Shot transitions
+		//
+
+		svg.selectAll(".shot.home").transition()
+			.delay(function(d) { return (d.elapsed * 1000) / 200; })
+			.duration(600)
+			.ease("ease-in")
+			.attr("cx", function(d) {
+				if (d.type === "goal") { return 0; }
+				else if (d.type === "missed_shot") { return 0 - margin.left - 10; }
+				else if (d.type === "blocked_shot") { return 0 + blockR; }
+				else if (d.type === "shot") { return 0 + goalieR; }
+			})
+			.attr("cy", function(d) {
+				if (d.type === "missed_shot") {
+					var randomSign = Math.round(Math.random()) * 2 - 1;
+					return h / 2 + randomSign * (blockR + Math.random() * 10 + 15); // + 15 just to ensure shot doesn't hit the core
+				} else if (d.type === "blocked_shot") { 
+					return h / 2 + (Math.random() * 2 - 1) * 12;
+				} else if (d.type === "shot") {
+					return h / 2 + (Math.random() * 2 - 1) * 8;
+				} else if (d.type === "goal") {
+					return h / 2 + (Math.random() * 2 - 1) * 4;
+				}
+			})
+			.transition()
+				.duration(150)
+				.ease("ease-in")
+				.attr("r", function(d) {
+					// Goal effect
+					if (d.type === "goal") { return 56; }
+					else { return 6; }
+				})
+				.style("opacity", 0)
+				.each("end", function(d) {
+					if (d.type === "goal") {
+						hGoals++;
+						d3.select(".core.home text")
+							.text(d.team.toUpperCase() + " " + hGoals);
+					}
+
+					hCf++;
+					var aCfPct = aCf / (hCf + aCf);
+					svg.select("rect.away.cf").transition().duration(50)
+						.attr("width", function() { return x(aCfPct); });
+				});
+
+		svg.selectAll(".shot.away").transition()
+			.delay(function(d) { return (d.elapsed * 1000) / 200; })
+			.duration(600)
+			.ease("ease-in")
+			.attr("cx", function(d) {
+				if (d.type === "goal") { return w; }
+				else if (d.type === "missed_shot") { return w + margin.right + 10; }
+				else if (d.type === "blocked_shot") { return w - blockR; }
+				else if (d.type === "shot") { return w - goalieR; }
+			})
+			.attr("cy", function(d) {
+				if (d.type === "missed_shot") {
+					var randomSign = Math.round(Math.random()) * 2 - 1;
+					return h / 2 + randomSign * (blockR + Math.random() * 10 + 15); // + 15 just to ensure shot doesn't hit the core
+				} else if (d.type === "blocked_shot") { 
+					return h / 2 + (Math.random() * 2 - 1) * 12;
+				} else if (d.type === "shot") {
+					return h / 2 + (Math.random() * 2 - 1) * 8;
+				} else if (d.type === "goal") {
+					return h / 2 + (Math.random() * 2 - 1) * 4;
+				}
+			})
+			.transition()
+				.duration(150)
+				.ease("ease-in")
+				.attr("r", function(d) {
+					// Goal effect
+					if (d.type === "goal") { return 56; }
+					else { return 6; }
+				})
+				.style("opacity", 0)
+				.each("end", function(d) {
+					if (d.type === "goal") {
+						aGoals++;
+						d3.select(".core.away text")
+							.text(d.team.toUpperCase() + " " + aGoals);
+					}
+
+					aCf++;
+					var aCfPct = aCf / (hCf + aCf);
+					svg.select("rect.away.cf").transition().duration(50)
+						.attr("width", function() { return x(aCfPct); });
+				});
+
+
+
+	});
+
+	function arcTween(transition, newAngle) {
+		transition.attrTween("d", function(d) {
+			var interpolate = d3.interpolate(d.endAngle, newAngle);
+			return function(t) {
+				d.endAngle = interpolate(t);
+				return arc(d);
+			};
+		});
+	}
+
+}
+
+</script>
+</html>

@@ -1,0 +1,320 @@
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>game results</title>
+	<script src="../d3.v4.min.js"></script>
+	<link href="https://fonts.googleapis.com/css?family=Roboto+Mono" rel="stylesheet">
+	<style>
+		body {
+			background: #2b3034;
+		}
+		#lattice {
+			padding: 8px;
+			border: 1px solid #ff00ff;
+			margin: 24px;
+		}
+		.grid line {
+			stroke: #444;
+			stroke-linecap: round;
+		}
+		.node {
+			stroke-width: 2px;
+		}
+		.link path {
+			fill: none;
+			stroke-width: 2;
+			stroke-linecap: round;
+		}
+		.label {
+			font-family: "Roboto Mono", apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif;
+			font-size: 13px;
+			font-weight: 700;
+		}
+	</style>
+</head>
+<body>
+	<svg id="lattice"></svg>
+</body>
+<script>
+
+/*
+SELECT datetime, a_team, h_team, a_final, h_final
+FROM game_results
+*/
+
+//
+// Append grid and nodes
+//
+
+var nodeData = [
+	{ name: "wsh", div: "met", loc: [1, 0] },
+	{ name: "cbj", div: "met", loc: [2, 0] },
+	{ name: "pit", div: "met", loc: [3, 0] },
+	{ name: "nyr", div: "met", loc: [4, 0] },
+	{ name: "phi", div: "met", loc: [5, 0] },
+	{ name: "nyi", div: "met", loc: [6, 0] },
+	{ name: "car", div: "met", loc: [7, 0] },
+	{ name: "njd", div: "met", loc: [8, 0] },
+	{ name: "min", div: "cen", loc: [0, 1] },
+	{ name: "chi", div: "cen", loc: [0, 2] },
+	{ name: "nsh", div: "cen", loc: [0, 3] },
+	{ name: "stl", div: "cen", loc: [0, 4] },
+	{ name: "dal", div: "cen", loc: [0, 5] },
+	{ name: "wpg", div: "cen", loc: [0, 6] },
+	{ name: "col", div: "cen", loc: [0, 7] },	
+	{ name: "mtl", div: "atl", loc: [1, 8] },
+	{ name: "ott", div: "atl", loc: [2, 8] },
+	{ name: "tor", div: "atl", loc: [3, 8] },
+	{ name: "bos", div: "atl", loc: [4, 8] },
+	{ name: "fla", div: "atl", loc: [5, 8] },
+	{ name: "buf", div: "atl", loc: [6, 8] },
+	{ name: "tbl", div: "atl", loc: [7, 8] },
+	{ name: "det", div: "atl", loc: [8, 8] },
+	{ name: "sjs", div: "pac", loc: [9, 1] },
+	{ name: "ana", div: "pac", loc: [9, 2] },
+	{ name: "edm", div: "pac", loc: [9, 3] },
+	{ name: "lak", div: "pac", loc: [9, 4] },
+	{ name: "van", div: "pac", loc: [9, 5] },
+	{ name: "cgy", div: "pac", loc: [9, 6] },
+	{ name: "ari", div: "pac", loc: [9, 7] }
+];
+
+
+//
+// Prepare link data
+//
+
+var linkData = [];
+
+d3.csv("games.csv", function(error, rows) {
+
+	// Get data for each link
+	rows.forEach(function(r) {
+		var datetime = new Date(r.datetime);
+		var dateInt = 10000 * datetime.getFullYear() + 100 * (datetime.getMonth() + 1) + datetime.getDate();
+		var aScore = +r.a_final;
+		var hScore = +r.h_final;
+		var winner = aScore > hScore ? r.a_team : r.h_team;
+		var loser = aScore < hScore ? r.a_team : r.h_team;
+		var start = nodeData.find(function(d) { return d.name === winner; }).loc;
+		var end = nodeData.find(function(d) { return d.name === loser; }).loc;
+		linkData.push({
+			date: dateInt,
+			winner: winner,
+			loser: loser,
+			start: start,
+			end: end
+		});
+	});
+
+	// Get an array of unique game dates (as integers), sorted in ascending order
+	var uniqDates = d3.map(linkData, function(d) { return d.date; }).keys();
+	uniqDates = uniqDates.map(function(d) { return +d; });
+	uniqDates.sort(function(a, b) { return a - b; });
+
+	// Calculate the delay for each link by getting its date's index in uniqDates
+	linkData.forEach(function(d) {
+		d.dateIdx = uniqDates.indexOf(d.date);
+	});
+
+	drawSvg();
+});
+
+//
+// Draw svg
+//
+
+function drawSvg() {
+
+	var maxX = d3.max(nodeData, function(d) { return d.loc[0]; });
+	var maxY = d3.max(nodeData, function(d) { return d.loc[1]; });
+
+	// Initialize svg
+	var margin = { top: 64, right: 64, bottom: 64, left: 64 };
+	var width = maxX * 32;
+	var height = maxY * 32;
+	var svg = d3.select("#lattice")
+		.attr("height", height + margin.top + margin.bottom)
+		.attr("width", width + margin.left + margin.right)
+		.append("g")
+			.attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+	// Append groups to order elements
+	var gridG = svg.append("g")
+		.attr("class", "grid");
+	var linkG = svg.append("g")
+		.attr("class", "links");
+	var nodeG = svg.append("g")
+		.attr("class", "nodes");
+
+	// Set scales
+	var x = d3.scaleLinear()
+		.domain([0, maxX])
+		.range([0, width]);
+	var y = d3.scaleLinear()
+		.domain([0, maxY])
+		.range([0, height]);
+
+	// Append grid
+	d3.range(x.domain()[0], x.domain()[1] + 1).forEach(function(d) {
+		gridG.append("line")
+			.attr("x1", x(d))
+			.attr("x2", x(d))
+			.attr("y1", y.range()[0])
+			.attr("y2", y.range()[1]);
+	});
+	d3.range(y.domain()[0], y.domain()[1] + 1).forEach(function(d) {
+		gridG.append("line")
+			.attr("x1", x.range()[0])
+			.attr("x2", x.range()[1])
+			.attr("y1", y(d))
+			.attr("y2", y(d));
+	});
+
+	// Append nodes
+	var nodes = nodeG.selectAll(".node")
+		.data(nodeData)
+		.enter().append("circle")
+			.attr("class", "node")
+			.attr("cx", function(d) { return x(d.loc[0]); })
+			.attr("cy", function(d) { return y(d.loc[1]); })
+			.attr("r", 3)
+			.attr("fill", "#2b3034")
+			.attr("stroke", "#ccc");
+
+	// Append labels
+	var labels = nodeG.selectAll(".label")
+		.data(nodeData)
+		.enter().append("text")
+			.attr("class", "label")
+			.attr("fill", "#999")
+			.attr("x", function(d) {
+				var offset = 0;
+				if (d.div === "cen") {
+					offset = -28;
+				} else if (d.div === "pac") {
+					offset = 28;
+				}
+				return x(d.loc[0]) + offset;
+			})
+			.attr("text-anchor", "middle")
+			.attr("alignment-baseline", "middle")
+			.attr("y", function(d) {
+				var offset = 0;
+				if (d.div === "met") {
+					offset = -23;
+				} else if (d.div === "atl") {
+					offset = 23;
+				} else if (d.div === "cen" || d.div === "pac") {
+					offset = 1;
+				}
+				return y(d.loc[1]) + offset;
+			})
+			.text(function(d) { return d.name.toUpperCase(); });
+
+	// Generate path for each link
+	linkData.forEach(function(l) {
+		var second = moveTowardsMiddle(l.start.slice());	// Second point in path
+		var penultimate = moveTowardsMiddle(l.end.slice());	// Second last point in path
+		var points = [l.start, second];
+		// Third point: randomly decide to move horizontally or vertically from the second point
+		var isHFirst = Math.random() > 0.5 ? true : false;
+		if (isHFirst) {
+			points.push([penultimate[0], second[1]]);
+		} else {
+			points.push([second[0], penultimate[1]]);
+		}
+		points.push(penultimate);
+		points.push(l.end);
+		l.points = points;
+	});
+
+	function moveTowardsMiddle(point) {
+		var output = point;
+		if (output[1] === 0) {
+			output[1]++; // Move down
+		} else if (output[1] === maxY) {
+			output[1]--; // Move up
+		} else if (output[0] === 0) {
+			output[0]++; // Move right
+		} else if (output[0] === maxX) {
+			output[0]--; // Move left
+		}
+		return output;
+	}
+
+	//
+	// Append links
+	//
+
+	var line = d3.line()
+		.x(function(d) { return x(d[0]); })
+		.y(function(d) { return y(d[1]); });
+
+	var linkGs = linkG.selectAll(".link")
+		.data(linkData);
+	linkGs = linkGs.enter().append("g")
+			.attr("class", "link")
+			.merge(linkGs);
+
+	// Append links
+	var links = linkGs.append("path")
+		.datum(function(d) { return d.points; })
+		.attr("d", line)
+		.attr("stroke", "#edb347")
+		.attr("stroke-dasharray", function() { return "12," + this.getTotalLength(); })
+		.attr("stroke-dashoffset", function() { return 24 + this.getTotalLength(); });
+
+	// Animate links
+	d3.select("body").on("click", function() {
+		links.transition()
+			.delay(function(d, i) {
+				// Calculate when link appears and starts animation
+				var linkG = d3.select(d3.select(this).node().parentNode);
+				var dateIdx = linkG.data()[0].dateIdx;
+				//return dateIdx * 250;
+				return i * 25;
+			})
+			.duration(1000)
+			.ease(d3.easeLinear)
+			.attr("stroke", "#f45846")
+			.attr("stroke-dashoffset", function() { return -this.getTotalLength(); })
+			.on("start", function() {
+				// Style winners's node and label
+				var linkG = d3.select(d3.select(this).node().parentNode);
+				var winner = linkG.data()[0].winner;
+				nodes.filter(function(n) { return n.name === winner; })
+					.attr("stroke", "#edb347")
+					.attr("r", 5)
+					.transition()
+						.delay(50)
+						.attr("stroke", "#ccc")
+						.attr("r", 3);
+				labels.filter(function(n) { return n.name === winner; })
+					.attr("fill", "#edb347")
+					.transition()
+						.delay(50)
+						.attr("fill", "#999");
+			})
+			.on("end", function() {
+				d3.select(this).style("stroke", "none");
+				// Style loser's node and label
+				var linkG = d3.select(d3.select(this).node().parentNode);
+				var loser = linkG.data()[0].loser;
+				nodes.filter(function(n) { return n.name === loser; })
+					.attr("stroke", "#f45846")
+					.attr("r", 1)
+					.transition()
+						.delay(50)
+						.attr("stroke", "#ccc")
+						.attr("r", 3);
+				labels.filter(function(n) { return n.name === loser; })
+					.attr("fill", "#f45846")
+					.transition()
+						.delay(50)
+						.attr("fill", "#999");
+			});
+	});
+}
+</script>
+</html>

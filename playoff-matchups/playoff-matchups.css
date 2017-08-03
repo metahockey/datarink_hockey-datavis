@@ -1,0 +1,73 @@
+body {
+	display: inline-block;
+	width: auto;
+	margin: 20px;
+	padding: 0;
+}
+
+.header svg {
+	margin-bottom: 0;
+}
+
+svg {
+	margin-right: 32px;
+}
+
+svg text {
+	font-size: 14px;
+	fill: #899;
+	alignment-baseline: middle;
+	text-transform: uppercase;
+	font-family: "Roboto Mono";
+}
+
+.header {
+	font-size: 0;
+	margin-bottom: 16px;
+}
+
+p {
+	margin: 0;
+	font-size: 14px;
+	line-height: 20px;
+	font-family: "Roboto";
+	color: #899;
+}
+
+.header div {
+	display: inline-block;
+	margin: 0;
+	padding: 0;
+}
+
+.teams text {
+	font-weight: 700;
+	fill: #233;
+}
+
+.plot line,
+.plot line {
+	stroke-width: 2;
+}
+
+.plot text.value {
+	font-size: 12px;
+}
+
+.plot rect {
+	fill: #41b6c4;
+}
+
+.plot rect.sp {
+	fill: #c7e9b4;
+}
+
+span.ev {
+	font-weight: 700;
+	color: #41b6c4;
+}
+
+span.sp {
+	font-weight: 700;
+	color: #c7e9b4;
+}

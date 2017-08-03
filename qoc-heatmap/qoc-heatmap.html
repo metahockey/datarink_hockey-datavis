@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset='utf-8'>
+  <title>QoC heatmap</title>
+  <script src='../d3.v4.min.js'></script>
+  <script src='../lodash.min.js'></script>
+  <style>
+    body {
+      margin: 24px;
+      color: #333;
+      font-size: 14px;
+      line-height: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      font-weight: 400;
+    }
+    span {
+      display: block;
+      margin-bottom: 8px;
+    }
+    .y-axis-title {
+      display: inline-block;
+      vertical-align: top;
+      margin-left: 8px;
+    }
+    #title {
+      margin: 16px 0 8px 0;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+    #main {
+      display: inline-block;
+      width: auto;
+    }
+    .col {
+      display: inline-block;
+      vertical-align: top;
+    }
+    .cell {
+      display: block;
+      box-sizing: border-box;
+      width: 12px;
+      height: 12px;
+    }
+  </style>
+</head>
+<body>
+  <span id='title'></span>
+  <span class='x-axis-title'>Game 1, 2, 3, ... →</span>
+  <div>
+   <div id='main'></div>
+   <span class='y-axis-title'>Opposing forwards,<br>ranked by 5v5 TOI,<br>most to least<br>↓</span>
+  </div>
+</body>
+<script>
+
+var ownId = 8470638;
+var shiftCsv = 'bergeron-shifts.csv';
+var sitCsv = 'bergeron-sits.csv';
+var results = [];
+
+//
+// Load and format shift data
+//
+
+var shifts = [];
+d3.csv(shiftCsv, (err, csv) => {
+  shifts = csv.map(d => {
+    return {
+      game_id: +d.game_id,
+      datetime: d.datetime,
+      player_name: d.first + ' ' + d.last,
+      player_id: +d.player_id,
+      team: d.team,
+      period: +d.period,
+      shifts: d.shifts.split(';').map(range => {
+        return range.split('-').map(point => {
+          return +point;
+        });
+      }),
+    };
+  });
+  calculateStats();
+});
+
+//
+// Load and format strength situation data
+//
+
+var sits = [];
+d3.csv(sitCsv, (err, csv) => {
+  sits = csv.map(d => {
+    return {
+      game_id: +d.game_id,
+      datetime: d.datetime,
+      team: d.team,
+      sit: d.strength_sit,
+      period: +d.period,
+      shifts: d.timeranges.split(';').map(range => {
+        return range.split('-').map(point => {
+          return +point;
+        });
+      }),
+    };
+  });
+  calculateStats();
+});
+
+//
+// Calculate toi stats and overlaps
+//
+
+function calculateStats() {
+  // Wait for shift and situation data to be ready
+  if (shifts.length === 0 || sits.length === 0) return;
+
+  // Loop through each game id
+  _.uniqBy(sits, 'game_id').map(d => d.game_id).forEach(function(gid) {
+    var gResult = {};
+
+    // Get shifts for self and opponents
+    var ownShifts = shifts.filter(d => d.game_id === gid && d.player_id === ownId);
+    var oppShifts = shifts.filter(d => d.game_id === gid && d.player_id !== ownId);
+
+    // Initialize data for opposing skaters
+    _.uniqBy(oppShifts, 'player_id').forEach(opp => {
+      gResult[opp.player_id] = {
+        player_name: opp.player_name,
+        datetime: opp.datetime,
+        team: opp.team,
+        total: 0,
+        versus: 0,
+      };
+    });
+
+    // Calculate total toi (all situations) for opposing skaters
+    // oppShifts.forEach(opp => {
+    //   gResult[opp.player_id].total += opp.shifts.reduce(
+    //     (prdTotal, range) => prdTotal + range[1] - range[0], 0
+    //   );
+    // });
+
+    // Calculate total ev5 toi for opposing skaters
+    oppShifts.forEach(opp => {
+      var ev5PrdData = sits.find(d => d.game_id === gid && d.period === opp.period && d.sit === 'ev5');
+      if (!ev5PrdData) return;
+
+      // Get overlap between opposing skater's shifts and ev5times
+      opp.shifts.forEach(shiftRange => {
+        ev5PrdData.shifts.forEach(sitRange => {
+          var overlap = getOverlap(shiftRange, sitRange);
+          if (!overlap) return;
+          gResult[opp.player_id].total += overlap[1] - overlap[0];
+        });
+      });
+    });
+
+    // Calculate own ev5 toi
+    var ownEv5Toi = 0;
+    var prds = _.uniqBy(ownShifts, "period").map(d => d.period);
+    prds.forEach(prd => {
+      var ownPrdData = ownShifts.find(d => d.period === prd);
+      var ev5PrdData = sits.find(d => d.game_id === gid && d.period === prd && d.sit === 'ev5');
+      if (!ownPrdData || !ev5PrdData) return;
+
+      // Get overlap between own shifts and ev5 times
+      ownPrdData.shifts.forEach(ownRange => {
+        ev5PrdData.shifts.forEach(sitRange => {
+          var overlap = getOverlap(ownRange, sitRange);
+          if (!overlap) return;
+          ownEv5Toi += overlap[1] - overlap[0];
+        });
+      });
+    });
+
+    // Calculate ev5 toi against opposing skaters
+    oppShifts.forEach(opp => {
+      var ownPrdData = ownShifts.find(d => d.period === opp.period);
+      var ev5PrdData = sits.find(d => d.game_id === gid && d.period === opp.period && d.sit === 'ev5');
+      if (!ownPrdData || !ev5PrdData) return;
+
+      // Get overlap between skaters' shifts
+      opp.shifts.forEach(oppRange => {
+        ownPrdData.shifts.forEach(ownRange => {
+          var skaterOverlap = getOverlap(oppRange, ownRange);
+          if (!skaterOverlap) return;
+
+          // Get and increment ev5 time
+          ev5PrdData.shifts.forEach(sitRange => {
+            var sitOverlap = getOverlap(skaterOverlap, sitRange);
+            if (!sitOverlap) return;
+            gResult[opp.player_id].versus += sitOverlap[1] - sitOverlap[0];
+          });
+        });
+      }); // End of each opponent's shifts loop
+    }); // End of opponents loop
+
+    // Store game results, with 'opps' as an array of player objects
+    var resultEl = {
+      game_id: gid,
+      datetime: null,
+      opps: [],
+    };
+    Object.keys(gResult).forEach(oppId => {
+      gResult[oppId].player_id = +oppId;
+      resultEl.opps.push(gResult[oppId]);
+    });
+
+    if (resultEl.opps.length > 0) {
+      resultEl.opps.sort((a, b) => b.total - a.total);
+      resultEl.datetime = new Date(resultEl.opps[0].datetime);
+
+      // Calculate percentage of ev5 time spent against opposing skaters
+      resultEl.opps.forEach(d => d.own_pct = d.versus / ownEv5Toi);
+
+      // Store result
+      results.push(resultEl);
+    }
+  }); // End of game id loop
+  results.sort((a, b) => a.datetime - b.datetime);
+  appendCharts();
+
+  // Input: 2 timeranges, each as a [start, end] array
+  // Output: A [start, end] overlap, or null if no overlap
+  function getOverlap(r0, r1) {
+    var start = Math.max(r0[0], r1[0]);
+    var end = Math.min(r0[1], r1[1]);
+    return start < end ? [start, end] : null;
+  }
+}
+
+function appendCharts() {
+
+  d3.select('#title').text(shiftCsv.substring(0, shiftCsv.indexOf('-')));
+
+  // Get maximum matchup toi
+  var max = d3.max(results, game =>
+    d3.max(game.opps, opp => opp.versus)
+  );
+
+  // Set colour scale
+  /*
+  var colour = d3.scaleThreshold()
+    .domain([90, 180, 270, 360, 450, 540, 630, 720])
+    .range(['#ffffd9', '#edf8b1', '#c7e9b4', '#7fcdbb', '#41b6c4', '#1d91c0', '#225ea8', '#253494', '#081d58']);
+  */
+  var colour = d3.scaleThreshold()
+    .domain([0.08, 0.16, 0.24, 0.32, 0.40, 0.48, 0.56, 0.64])
+    .range(['#ffffd9', '#edf8b1', '#c7e9b4', '#7fcdbb', '#41b6c4', '#1d91c0', '#225ea8', '#253494', '#081d58']);
+
+  // Append columns
+  var cols = d3.select('#main').selectAll('.col')
+    .data(results)
+    .enter().append('div')
+      .attr('class', 'col');
+
+  // Append cells
+  var cells = cols.selectAll('.cell')
+    .data(d => d.opps)
+    .enter().append('div')
+        .attr('class', 'cell')
+        .attr('title', d => d.player_name + ' — ' + d.versus + ' / ' + d.total)
+        .style('background', d => colour(d.own_pct));
+        //.style('background', d => colour(d.versus));
+}
+</script>
+<!-- Query for the player's shifts and their opponents' shifts:
+SELECT s.*, ros.first, ros.last, ros.position, res.datetime
+FROM game_shifts AS s
+INNER JOIN (
+  SELECT DISTINCT(game_id)
+  FROM game_shifts
+  WHERE player_id = 8479318
+) AS s_tmp
+  ON s.game_id = s_tmp.game_id
+INNER JOIN game_rosters AS ros
+  ON s.game_id = ros.game_id AND s.player_id = ros.player_id
+INNER JOIN game_results AS res
+  ON s.game_id = res.game_id
+WHERE (s.player_id = 8479318 OR s.team != 'tor')
+  AND ros.position != 'd' AND ros.position != 'g'
+-->
+<!-- Query for strength situations:
+SELECT sits.*
+FROM game_strength_situations AS sits
+INNER JOIN (
+  SELECT DISTINCT(game_id)
+  FROM game_shifts
+  WHERE player_id = 8479318
+) AS shifts
+  ON sits.game_id = shifts.game_id
+WHERE sits.team != 'tor'
+-->
+</html>

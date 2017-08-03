@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<title>Team Performance</title>
+	<link rel="stylesheet" type="text/css" href="style.css">
+	<link href="http://fonts.googleapis.com/css?family=Roboto" rel="stylesheet" type="text/css">
+	<link href="http://fonts.googleapis.com/css?family=Roboto+Mono" rel="stylesheet" type="text/css">
+	<script src="../d3.min.js" charset="utf-8"></script>
+</head>
+<body>
+	<div class="corsi">
+		<div class="intro">
+			<h1>5-ON-5 CORSI DIFFERENTIALS<br>Lines show score-adjusted values. Wins are shaded gray.</h1>
+		</div>
+	</div>
+</body>
+<script>
+var dataset;
+
+d3.csv("stats.csv", function(data) {
+		dataset = data;
+		prepareData();
+	}).row(function(r) {
+		var hFinal = +r.hFinal;
+		var aFinal = +r.aFinal;
+
+		var result = "l";
+		if (r.iceSit === "home" && hFinal > aFinal) {
+			result = "w";
+		} else if (r.iceSit === "away" && aFinal > hFinal) {
+			result = "w";
+		}
+
+		return {
+			"date": +r.date,
+			"team": r.team,
+			"gameId": +r.gameId,
+			"result": result,
+			"scoreSit": +r.scoreSit,
+			"cf": (+r.sf) + (+r.msf) + (+r.bsf),
+			"ca": (+r.sa) + (+r.msa) + (+r.bsa)
+		}
+	});
+
+function prepareData() {
+
+	// Nest data by team, then by game - each game will have multiple score situations
+	dataset = d3.nest()
+		.key(function(d) { return d.team; })
+		.key(function(d) { return d.gameId; })
+		.entries(dataset);
+
+	// Sort each team's games by date (earliest to latest)
+	dataset.forEach(function(team) {
+		team.values.sort(function(gameA, gameB) {
+			// Get the date from the first strSit in each game
+			return gameA.values[0].date - gameB.values[0].date;
+		});
+	});
+
+	// For each game, record the total corsi differential (raw and adjusted)
+	// Also record the win/loss result and date
+	dataset.forEach(function(team) {
+		team.values.forEach(function(game) {
+			game.result = game.values[0].result;
+			game.date = game.values[0].date;
+			game.cf = d3.sum(game.values, function(d) { return d.cf; });
+			game.ca = d3.sum(game.values, function(d) { return d.ca; });
+			game.cfAdj = d3.sum(game.values, function(d) {
+				if (d.scoreSit === -3) { return d.cf * 0.841; }
+				else if (d.scoreSit === -2) { return d.cf * 0.884; }
+				else if (d.scoreSit === -1) { return d.cf * 0.932; }
+				else if (d.scoreSit === 0) { return d.cf * 1; }
+				else if (d.scoreSit === 1) { return d.cf * (2 -  0.932); }
+				else if (d.scoreSit === 2) { return d.cf * (2 -  0.884); }
+				else if (d.scoreSit === 3) { return d.cf * (2 -  0.841); }
+			});
+			game.caAdj = d3.sum(game.values, function(d) {
+				if (d.scoreSit === 3) { return d.ca * 0.841; }
+				else if (d.scoreSit === 2) { return d.ca * 0.884; }
+				else if (d.scoreSit === 1) { return d.ca * 0.932; }
+				else if (d.scoreSit === 0) { return d.ca * 1; }
+				else if (d.scoreSit === -1) { return d.ca * (2 -  0.932); }
+				else if (d.scoreSit === -2) { return d.ca * (2 -  0.884); }
+				else if (d.scoreSit === -3) { return d.ca * (2 -  0.841); }
+			});
+		});
+	});
+
+	// For each team, record the total corsi differential after each game (raw and adjusted) in an array
+	// Also record an array of win/loss results
+	dataset.forEach(function(team) {
+		team.cDiffsRaw = [];
+		team.cDiffsAdj = [];
+		team.results = [];
+		var runningDiffRaw = 0;
+		var runningDiffAdj = 0;
+		team.values.forEach(function(game) {
+			runningDiffRaw += game.cf - game.ca;
+			runningDiffAdj += game.cfAdj - game.caAdj;
+			team.cDiffsRaw.push(runningDiffRaw);
+			team.cDiffsAdj.push(runningDiffAdj);
+			team.results.push(game.result);
+		});
+	});
+
+	// Sort teams from the highest to lowest raw corsi differential
+	dataset.sort(function(teamA, teamB) {
+		return teamB.cDiffsRaw[teamB.cDiffsRaw.length - 1] - teamA.cDiffsRaw[teamA.cDiffsRaw.length - 1];
+	});
+
+	// For each team, copy the last data point so that the 'step-after' interpolation shows the last step
+	dataset.forEach(function(team) {
+		var lastVal = team.cDiffsRaw[team.cDiffsRaw.length - 1];
+		team.cDiffsRaw.push(lastVal);
+
+		lastVal = team.cDiffsAdj[team.cDiffsAdj.length - 1];
+		team.cDiffsAdj.push(lastVal);;
+	});
+
+	appendCards();
+};
+
+function appendCards() {
+	
+	var cards = d3.selectAll(".corsi").selectAll(".team.card")
+		.data(dataset)
+		.enter().append("div")
+		.attr("class", "team card");
+
+	var headers = cards.append("div")
+		.attr("class", "header");
+	headers.append("h3")
+		.attr("class", "name")
+		.text(function(d) { return d.key; });
+	headers.append("h3")
+		.attr("class", "total")
+		.text(function(d) {
+			var total = d.cDiffsRaw[d.cDiffsRaw.length - 1];
+			if (total > 0) { return "+" + total; }
+			else { return total; }
+		});
+
+	appendCharts();
+};
+
+function appendCharts() {
+
+	var margin = {top: 0, right: 0, bottom: 0, left: 0};
+	var pxPerGame = 1;
+	var h;
+	var w;
+
+	//
+	//
+	// Initialize scales
+	//
+	//
+
+	var maxGames = d3.max(dataset, function(team) {
+		return team.cDiffsRaw.length;
+	});
+
+	var extent = [];
+	var extents = [];
+	// Smallest raw corsi differential
+	extents.push(d3.min(dataset, function(team) {
+		return d3.min(team.cDiffsRaw);
+	}));
+	// Largest raw corsi differential
+	extents.push(d3.max(dataset, function(team) {
+		return d3.max(team.cDiffsRaw);
+	}));
+	// Smallest adjusted corsi differential
+	extents.push(d3.min(dataset, function(team) {
+		return Math.floor(d3.min(team.cDiffsAdj));
+	}));
+	// Largest adjusted corsi differential
+	extents.push(d3.max(dataset, function(team) {
+		return Math.ceil(d3.max(team.cDiffsAdj));
+	}));
+	extent = d3.extent(extents);
+
+	h = 100;
+	w = pxPerGame * maxGames;
+	var x = d3.scale.linear()
+		.domain([0, maxGames]) // We don't need to use maxGames-1 because we duplicated the last game so that "step-after" interpolation shows the last step
+		.range([0, w]);
+	var y = d3.scale.linear()
+		.domain(extent)
+		.range([h, 0]);
+
+	//
+	//
+	// Append svgs
+	//
+	//
+
+	// Append svgs
+	d3.selectAll(".team.card").append("svg")
+		.attr("height", (h + margin.top + margin.bottom) + "px")
+		.attr("width", (w + margin.left + margin.right) + "px");
+
+	// Append clip-paths for each team's area graph
+	var area = d3.svg.area()
+		.interpolate("step-after")
+	    .x(function(d, i) { return x(i); })
+	    .y0(y(0))
+	    .y1(function(d) { return y(d); });
+	d3.selectAll(".corsi svg").append("defs")
+		.append("clipPath")
+			.attr("id", function(d) { return "corsi-clip-path-" + d.key; })
+			.append("path")
+				.datum(function(d) { return d.cDiffsRaw; })
+				.attr("d", area);
+
+	var svgs = d3.selectAll("svg").append("g")
+		.attr("transform", "translate(" + margin.left + "," + margin.top +")");
+	
+	//
+	//
+	// Append points timeline
+	//
+	//
+
+	var ptArea = d3.svg.area()
+		.interpolate("step-after")
+	    .x(function(d, i) { return x(i); })
+	    .y0(0)
+	    .y1(function(d) {
+	 		// y1 is added to y0 - so if y1 is positive, y1 will drawn below y0
+	    	if (d === "w") { return h; }
+	    	else { return 0; }
+	    });
+	svgs.append("path")
+		.datum(function(d) { return d.results; })
+		.attr("class", "pts")
+		.attr("d", ptArea);
+
+	// Append a blue rectangle for the positive area, then apply the clip-path
+	svgs.append("rect")
+		.attr("class", "blue bg")
+		.attr("x", 0)
+		.attr("width", x.range()[1]);
+	d3.selectAll(".corsi .blue.bg")
+		.attr("y", y.range()[1])
+		.attr("height", y(0) - y.range()[1])
+		.style("clip-path", function(d) {
+			return "url(#corsi-clip-path-" + d.key + ")";
+		});
+
+	// Append a red rectangle for the negative area, then apply the clip-path
+	svgs.append("rect")
+		.attr("class", "red bg")
+		.attr("x", 0)
+		.attr("width", x.range()[1]);
+	d3.selectAll(".corsi .red.bg")
+		.attr("y", y(0))
+		.attr("height", y.range()[0] - y(0))
+		.style("clip-path", function(d) {
+			return "url(#corsi-clip-path-" + d.key + ")";
+		});
+
+	//
+	//
+	// Append score-adjusted line
+	//
+	//
+
+	var path = d3.svg.line()
+		.x(function(d, i) { return x(i); })
+		.y(function(d) { return y(d); });
+	svgs.append("path")
+		.datum(function(d) { return d.cDiffsAdj; })
+		.attr("d", path)
+		.style("stroke", "#111")
+		.style("fill", "none");
+}
+</script>
+</html>

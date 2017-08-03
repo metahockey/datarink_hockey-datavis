@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<title>Playoff Matchups</title>
+	<script src="../d3.min.js"></script>
+	<link rel="stylesheet" type="text/css" href="playoff-matchups.css">
+	<link href="http://fonts.googleapis.com/css?family=Roboto+Mono" rel="stylesheet" type="text/css">
+	<link href="http://fonts.googleapis.com/css?family=Roboto" rel="stylesheet" type="text/css">
+	<!-- <link href='https://fonts.googleapis.com/css?family=Source+Sans+Pro' rel='stylesheet' type='text/css'> -->
+</head>
+<body>
+</body>
+<script>
+
+var jsonUrl = "http://127.0.0.1:5000/api/teams/20152016";
+var dataset = [];
+
+var matchups = [];
+matchups.push([
+	{ teamAbbr: "dal", seed: 1, wins: 4 },
+	{ teamAbbr: "min", seed: "wc2", wins: 2 }
+]);
+matchups.push([
+	{ teamAbbr: "stl", seed: 2, wins: 4 },
+	{ teamAbbr: "chi", seed: 3, wins: 3 }
+]);
+matchups.push([
+	{ teamAbbr: "ana", seed: 1, wins: 3 },
+	{ teamAbbr: "nsh", seed: "wc1", wins: 4 }
+]);
+matchups.push([
+	{ teamAbbr: "lak", seed: 2, wins: 1 },
+	{ teamAbbr: "sjs", seed: 3, wins: 4 }
+]);
+matchups.push([
+	{ teamAbbr: "fla", seed: 1, wins: 2 },
+	{ teamAbbr: "nyi", seed: "wc1", wins: 4 }
+]);
+matchups.push([
+	{ teamAbbr: "tbl", seed: 2, wins: 4 },
+	{ teamAbbr: "det", seed: 3, wins: 1 }
+]);
+matchups.push([
+	{ teamAbbr: "wsh", seed: 1, wins: 4 },
+	{ teamAbbr: "phi", seed: "wc2", wins: 2 }
+]);
+matchups.push([
+	{ teamAbbr: "pit", seed: 2, wins: 4 },
+	{ teamAbbr: "nyr", seed: 3, wins: 1 }
+]);
+
+d3.json(jsonUrl, function(error, json) {
+
+	// Replace wildcard seeds with 4, then sort teams by seed (ascending; 1 - 4)
+	matchups.forEach(function(m) {
+		m.forEach(function(team) {
+			if (team.seed === "wc1" || team.seed === "wc2") {
+				team.seed = 4;
+			}
+		});
+		m.sort(function(t1, t2) { return t1.seed - t2.seed; });
+	});
+
+	// Add team stats to the matchups
+	matchups.forEach(function(m) {
+		m.forEach(function(team) {
+			team.stats = json.filter(function(tm) { return tm.teamAbbr === team.teamAbbr; })[0].stats;
+		});
+	});
+
+	// Calculate final stats to be displayed
+	matchups.forEach(function(m) {
+		m.forEach(function(t) {
+
+			// 5v5 goals, shots, cfAdj, shPct
+			t.ev5Gf = t.stats.filter(function(stat) { return stat.statAbbr === "gf"; })[0].ev5;
+			t.ev5Sf = t.stats.filter(function(stat) { return stat.statAbbr === "sf"; })[0].ev5;
+			t.ev5Cf = t.stats.filter(function(stat) { return stat.statAbbr === "cfAdj"; })[0].ev5;
+			t.ev5ShPct = 100 * (t.ev5Gf / t.ev5Sf);
+
+			// 4v4 goals
+			t.ev4Gf = t.stats.filter(function(stat) { return stat.statAbbr === "gf"; })[0].ev4;
+			if (!t.ev4Gf) {
+				t.ev4Gf = 0;
+			}
+
+			// ev3 goals
+			t.ev3Gf = t.stats.filter(function(stat) { return stat.statAbbr === "gf"; })[0].ev3;
+			if (!t.ev3Gf) {
+				t.ev3Gf = 0;
+			}
+
+			// SP goals
+			var stat = t.stats.filter(function(stat) { return stat.statAbbr === "gf"; })[0];
+			var sits = ["pp53", "pp54", "pp43", "sh34", "sh35", "sh45", "ownGPulled"];
+			t.spGf = 0;
+			sits.forEach(function(sit) {
+				if (stat[sit]) {
+					t.spGf += stat[sit];
+				}
+			});
+
+			// Empty net goals
+			t.eng = t.stats.filter(function(stat) { return stat.statAbbr === "gf"; })[0].oppGPulled;
+
+			// Total goals
+			t.evGf = t.ev3Gf + t.ev4Gf + t.ev5Gf;
+			t.gf = t.evGf + t.spGf;
+
+			// Penalties drawn in all situations
+			var stat = t.stats.filter(function(stat) { return stat.statAbbr === "penDrawn"; })[0];
+			var sits = ["ev3", "ev4", "ev5", "pp43", "pp53", "pp54", "sh34", "sh35", "sh45", "oppGPulled", "ownGPulled", "other"];
+			t.penDrawn = 0;
+			sits.forEach(function(sit) {
+				if (stat[sit]) {
+					t.penDrawn += stat[sit];
+				}
+			});
+		});
+	});
+
+	// Print stats for verification
+	matchups.forEach(function(m) {
+		m.forEach(function(t) {
+			console.log(t.teamAbbr + ": " + t.evGf + " + " + t.spGf + " + " + t.eng + "\t=\t" + (t.evGf + t.spGf + t.eng));
+		});
+	});
+
+	appendSvgs();
+});
+
+function appendSvgs() {
+
+	var margin = { top: 10, right: 40, bottom: 10, left: 0 };
+	var yPos = [12, 32];
+	var h = 40;
+	var headerH = 1;
+
+	// Append a div for column headers
+	var header = d3.select("body").append("div")
+		.attr("class", "header");
+
+	// Append a div for each matchup
+	var divs = d3.select("body").selectAll("div.matchup")
+		.data(matchups)
+		.enter().append("div")
+			.attr("class", "matchup");
+
+	//
+	// Append svgs for team names and wins
+	//
+	var w = 30;
+	margin.right = 20;
+
+	// Append header
+	header.append("div")
+		.append("svg")
+		.attr("class", "teams")
+		.attr("width", w + margin.left + margin.right + "px")
+		.attr("height", headerH + "px");
+
+	// Append team names and wins
+	var svgs = divs.append("svg")
+		.attr("class", "teams")
+		.attr("width", w + margin.left + margin.right + "px")
+		.attr("height", h + margin.top + margin.bottom + "px")
+		.append("g")
+			.attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+	svgs.selectAll("text.name")
+		.data(function(d) { return d; })
+		.enter().append("text")
+			.attr("class", "name")
+			.attr("x", 0)
+			.attr("y", function(d, i) { return yPos[i]; })
+			.text(function(d) { return d.teamAbbr; });
+	svgs.selectAll("text.wins")
+		.data(function(d) { return d; })
+		.enter().append("text")
+			.attr("class", "wins")
+			.attr("x", 40)
+			.attr("y", function(d, i) { return yPos[i]; })
+			.text(function(d) { return d.wins; });
+
+	//
+	// Calculate stat ranges to be used for scales
+	//
+
+	var extents = {
+		gf: [0, -1000],
+		ev5Cf: [0, -1000],
+		ev5ShPct: [0, -1000]
+	};
+
+	matchups.forEach(function(m) {
+		m.forEach(function(t) {
+			// gf extent
+			if (t.gf > extents.gf[1]) { extents.gf[1] = t.gf; }
+			
+			// ev5 CF extent
+			if (t.ev5Cf > extents.ev5Cf[1]) { extents.ev5Cf[1] = t.ev5Cf; }
+
+			// ev5 shPct extent
+			if (t.ev5ShPct > extents.ev5ShPct[1]) { extents.ev5ShPct[1] = t.ev5ShPct; }
+
+		});
+	});
+
+	//
+	// Append plots for ev5Gf, ev5Cf, ev5ShPct
+	//
+	var w = 100;
+
+	["gf", "ev5Cf", "ev5ShPct"].forEach(function(s) {
+
+		if (s === "ev5ShPct") {
+			margin.right = 20;
+		} else {
+			margin.right = 40;
+		}
+
+		// Create scale
+		var x = d3.scale.linear()
+			.domain(extents[s])
+			.range([0, w]);
+
+		// Append header
+		var headerCell = header.append("div");
+		headerCell.append("svg")
+				.attr("width", w + margin.left + margin.right + "px")
+				.attr("height", headerH + "px");
+		headerCell.append("p")
+			.html(function() {
+				if (s === "gf") { return "<span class='ev'>◼</span> Even strength goals<br><span class='sp'>◼</span> Special teams goals"; }
+				else if (s === "ev5Cf") { return "5v5 corsi,<br>score-adjusted"; }
+				else if (s === "ev5ShPct") { return "5v5 shooting<br>percentage"; }
+			});
+
+		// Append svg
+		var svgs = divs.append("svg")
+			.attr("class", s + " plot")
+			.attr("width", w + margin.left + margin.right + "px")
+			.attr("height", h + margin.top + margin.bottom + "px")
+			.append("g")
+				.attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+		// Append value labels
+		svgs.selectAll("text.value")
+			.data(function(d) { return d; })
+			.enter().append("text")
+				.attr("class", "value")
+				.attr("x", function(d) {
+					var outVal = d[s];
+					if (s === "ev5Gf") { return outVal = d["ev5Gf"] + d["ppGf"]; }
+
+					if (outVal === 0) { return x(outVal); }
+					else { return x(outVal) + 5; }
+
+				})
+				.attr("y", function(d, i) { return yPos[i]; })
+				.text(function(d) { return Math.round(d[s]); });
+
+		// Append bars
+		if (s === "gf") {
+			svgs.selectAll("rect.value.ev")
+				.data(function(d) { return d; })
+				.enter().append("rect")
+					.attr("class", "value ev")
+					.attr("x", function(d) { return x.range()[0]; })
+					.attr("y", function(d, i) { return yPos[i] - 10.5; })
+					.attr("width", function(d) { return x(d["evGf"]); })
+					.attr("height", 18);
+			svgs.selectAll("rect.value.sp")
+				.data(function(d) { return d; })
+				.enter().append("rect")
+					.attr("class", "value sp")
+					.attr("x", function(d) { return x(d["evGf"]); })
+					.attr("y", function(d, i) { return yPos[i] - 10.5; })
+					.attr("width", function(d) { return x(d["spGf"]); })
+					.attr("height", 18);
+		} else {
+			svgs.selectAll("rect.value")
+				.data(function(d) { return d; })
+				.enter().append("rect")
+					.attr("class", "value")
+					.attr("x", x.range()[0])
+					.attr("y", function(d, i) { return yPos[i] - 11; })
+					.attr("width", function(d) { return x(d[s]); })
+					.attr("height", 18);
+		}
+
+	});
+
+	//
+	// Append penalties drawn
+	//
+	
+	w = 40;
+	margin.left = 0;
+	margin.right = 0;
+
+	// Append header
+	var headerCell = header.append("div");
+	headerCell.append("svg")
+			.attr("width", w + margin.left + margin.right + "px")
+			.attr("height", headerH + "px");
+	headerCell.append("p")
+		.html("Penalties<br>drawn");
+
+	// Append team names and wins
+	var svgs = divs.append("svg")
+		.attr("class", "penalties")
+		.attr("width", w + margin.left + margin.right + "px")
+		.attr("height", h + margin.top + margin.bottom + "px")
+		.append("g")
+			.attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+	svgs.selectAll("text.penalties")
+		.data(function(d) { return d; })
+		.enter().append("text")
+			.attr("class", "penalties")
+			.attr("x", 0)
+			.attr("y", function(d, i) { return yPos[i]; })
+			.text(function(d) { return d.penDrawn; });
+
+}
+
+</script>
+</html>

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>fd shots</title>
+	<script src="../d3.v4.min.js"></script>
+	<link rel="stylesheet" type="text/css" href="fd-shots.css">
+</head>
+<body>
+	<div id="teams"></div>
+</body>
+<script>
+d3.csv("shots.csv", function(error, csv) {
+
+	var shots = csv;
+
+	// Type data
+	shots.forEach(function(d) {
+		d.position = d.position === "d" ? "d" : "f";
+		d.loc_x = !d.loc_x ? 0 : +d.loc_x;
+		d.loc_y = !d.loc_y ? 0 : +d.loc_y;
+
+		// Convert zones
+		d.loc_x = -Math.abs(d.loc_x);
+	});
+
+	// Group shots by team
+	shots = d3.nest()
+		.key(function(d) { return d.team; })
+		.entries(shots);
+
+	// Sort teams by total cf
+	shots.sort(function(a, b) { return b.values.length - a.values.length; });
+
+	// Sort shots (forward shots first)
+	shots.forEach(function(t) {
+		t.values = t.values.sort(function(d) {
+			return d.position === "f" ? -1 : 1;
+		});
+	});
+
+	// DATA JOIN: Join data with elements
+	var teamDivs = d3.select("#teams").selectAll("div.team")
+		.data(shots);
+
+	// ENTER: Append new divs, and assign teamDivs to the merged selection
+	teamDivs = teamDivs.enter().append("div")
+		.attr("class", "team")
+		.merge(teamDivs);
+
+	teamDivs.append("p")
+		.text(function(d) {
+			var totalCf = d.values.length;
+			var dCf = d.values.filter(function(s) { return s.position === "d"; }).length;
+			var pct = Math.round(100 * dCf / totalCf);
+			return d.key + ": " + pct + "%, " + totalCf;
+		});
+
+	// Append svgs
+	var margin = { top: 8, right: 8, bottom: 8, left: 8 };
+	var width = 200;
+	var height = 85;
+	var svgs = teamDivs.append("svg")
+		.attr("height", height + margin.top + margin.bottom)
+		.attr("width", width + margin.left + margin.right);
+
+	// Set scales
+	var x = d3.scaleLinear()
+		.domain([-100, 100])
+		.range([0, width]);
+	var y = d3.scaleLinear()
+		.domain([-45, 45])
+		.range([0, height]);
+
+	// Append shots
+	var shots = svgs.selectAll(".shot")
+		.data(function(d) { return d.values; });
+	shots = shots.enter().append("circle")
+		.attr("class", "shot")
+		.merge(shots);
+	shots.attr("cx", function(d) { return x(d.loc_x); })
+		.attr("cy", function(d) { return y(d.loc_y); })
+		.attr("r", 1)
+		.style("fill", function(d) {
+			return d.position === "f" ? "gold" : "red";	
+		})
+		.style("opacity", 0.2);
+
+
+
+});
+</script>
+</html>

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>d shots</title>
+	<script src="../d3.v4.min.js"></script>
+	<link rel="stylesheet" type="text/css" href="d-shots.css">
+</head>
+<body>
+	<svg></svg>
+</body>
+<script>
+d3.csv("shots.csv", function(error, csv) {
+
+	var shots = csv;
+
+	// Type data
+	shots.forEach(function(d) {
+		d.position = d.position === "d" ? "d" : "f";
+		d.loc_x = !d.loc_x ? 0 : +d.loc_x;
+		d.loc_y = !d.loc_y ? 0 : +d.loc_y;
+		d.loc_x = Math.abs(d.loc_x); // Convert zones
+	});
+
+	// Group shots by team
+	shots = d3.nest()
+		.key(function(d) { return d.team; })
+		.entries(shots);
+
+	// Calculate number of f and d shots
+	// Then filter out f shots
+	shots.forEach(function(d) {
+		d.f_shots = d.values.filter(function(d) { return d.position !== "d"; }).length;
+		d.d_shots = d.values.filter(function(d) { return d.position === "d"; }).length;
+		d.values = d.values.filter(function(d) { return d.position === "d"; });
+	});
+
+	// Calculate median x value of d shots
+	shots.forEach(function(d) {
+		var xVals = d.values.map(function(s) { return s.loc_x; });
+		d.medianX = median(xVals);
+	});
+
+	// Set dimensions
+	var margin = { top: 24, right: 24, bottom: 24, left: 24 };
+	var height = 200;
+	var width = 400;
+
+	// Get extent of data
+	var maxX = d3.max(shots, function(d) {
+		return d.medianX;
+	});
+	var maxY = d3.max(shots, function(d) {
+		return d.d_shots / (d.d_shots + d.f_shots);
+	});
+
+	// Set scales
+	var x = d3.scaleLinear()
+		.domain([0, maxX])
+		.range([0, width]);
+	var y = d3.scaleLinear()
+		.domain([0, maxY])
+		.range([height, 0]);
+
+	// Append svg
+	var svg = d3.select("svg")
+		.attr("height", height + margin.top + margin.bottom)
+		.attr("width", width + margin.left + margin.right)
+		.append("g")
+			.attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+	// Append dots
+	var dots = svg.selectAll(".dot")
+		.data(shots)
+		.enter().append("circle")
+			.attr("class", "dot")
+			.attr("cx", function(d) { return x(d.medianX); })
+			.attr("cy", function(d) { return y(d.d_shots / (d.d_shots + d.f_shots)); })
+			.attr("r", 3)
+			.append("title")
+				.text(function(d) { return d.key + ", " + d.medianX + ", " + (d.d_shots / (d.d_shots + d.f_shots)).toFixed(3); });
+
+
+});
+
+function median(values) {
+	values.sort(function(a, b) { return a - b; });
+	var half = Math.floor(values.length / 2);
+	if (values.length % 2) {
+		return values[half];
+	} else {
+		return (values[half-1] + values[half]) / 2.0;
+	}
+}
+</script>
+</html>

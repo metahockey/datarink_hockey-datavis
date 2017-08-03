@@ -1,0 +1,86 @@
+svg {
+	border: 1px solid #000;
+}
+
+text {
+	font-family: "Roboto Mono";
+	font-size: 12px;
+	font-weight: 700;
+}
+
+/*
+*
+* CF% bars
+*
+*/
+
+.cf {
+	stroke: white;
+}
+
+.red.cf {
+	fill: #f4a582;
+}
+
+.blue.cf {
+	fill: #92c5de;
+}
+
+/*
+*
+* Cores
+*
+*/
+
+.blue.core .net,
+.blue.shot,
+.blue.core text {
+	fill: #0571b0;
+}
+
+.red.core .net,
+.red.shot,
+.red.core text {
+	fill: #ca0020;
+}
+
+.goalie,
+.block {
+	fill: none;
+}
+
+.blue.core .goalie {
+	stroke: #0571b0;
+}
+
+.red.core .goalie {
+	stroke: #ca0020;
+}
+
+.blue.core .block {
+	stroke: #92c5de;
+}
+
+.red.core .block {
+	stroke: #f4a582;
+}
+
+g.pp circle {
+	fill: #fed976;
+	fill-opacity: 0.8;
+}
+
+/*
+*
+* Clock
+*
+*/
+
+.clock text {
+	text-anchor: middle;
+	fill: #333;
+}
+
+.clock path {
+	fill: #aaa;
+}

@@ -1,0 +1,230 @@
+body {
+	font-family: "Roboto", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif;
+	background: #2B3034;
+}
+.container {
+	padding: 10px 0;
+	background: #2B3034;
+	display: table;
+	position: relative;
+	outline: 1px solid #ff00ff;
+}
+.header {
+	width: 50%;
+	display: inline-block;
+	box-sizing: border-box;
+	padding: 0 20px;
+}
+.header.home {
+	text-align: right;
+}
+.header.away > .abbr {
+	margin-right: 5px;
+}
+.header.home > .score {
+	margin-right: 5px;
+}
+.header > span {
+	display: inline-block;
+	vertical-align: top;
+	font-size: 14px;
+	line-height: 20px;
+	text-transform: uppercase;
+}
+
+/*
+*
+* Shot tally styling
+*
+*/
+
+.shot-tallies > .home,
+.shot-tallies > .away {
+	width: 80px; /* Width of 20 bullets */
+	display: inline-block;
+	vertical-align: top;
+	margin: 0 20px;
+	line-height: 0;
+	min-height: 24px;
+}
+.shot-tallies > .home {
+	float: right;
+	text-align: right;
+}
+.shot-tallies .bullet {
+	display: inline-block;
+	vertical-align: top;
+	height: 2px;
+	width: 2px;
+	margin: 2px 0 0 0;
+	border-radius: 2px;
+}
+.shot-tallies .away .bullet {
+	margin-right: 2px;
+}
+.shot-tallies .home .bullet {
+	margin-left: 2px;
+}
+
+/*
+*
+* Clock svg styling
+*
+*/
+
+#clock {
+	position: absolute;
+	left: calc(50% - 16px);
+	top: 4px;
+}
+#clock path {
+	fill: rgba(255, 255, 255, 0.3);
+}
+#clock #clock-elapsed {
+	fill: rgba(255, 255, 255, 0.7);
+}
+#period {
+	/* Height and width matches the clock svg */
+	position: absolute;
+	left: calc(50% - 16px);
+	top: 4px;
+	height: 32px;
+	line-height: 32px;
+	width: 32px;
+	text-align: center;
+
+	font-size: 14px;
+	color: #fff;
+}
+
+/*
+*
+* Rink svg styling
+*
+*/
+
+path.shot {
+	stroke-width: 1.25;
+}
+line.barrier-goalie,
+line.barrier-skater {
+	stroke-width: 1;
+}
+circle.shot {
+	fill-opacity: 0.6;
+	stroke-opacity: 0.85;
+}
+path.net {
+	stroke-width: 3px;
+	fill: none;
+}
+
+/*
+*
+* Shot path styling and animation
+*
+*/
+
+path.shot {
+	fill: none;
+	stroke-dasharray: 260;
+	stroke-dashoffset: 260;
+}
+path.shot.animated-dashoffset {
+	animation: dash 1500ms ease-in forwards;
+}
+@keyframes dash {
+	to {
+		stroke-dashoffset: -260;
+	}
+}
+
+/*
+*
+* Colours
+*
+*/
+
+/* Red */
+
+.header.red span {
+	color: #F45846;
+}
+.shot-tallies .red .bullet {
+	background: #F45846;
+}
+line.barrier-goalie.red,
+line.barrier-skater.red,
+path.shot.red,
+path.net.red,
+circle.end-explosion.red {
+	stroke: #F45846;
+}
+circle.shot.red {
+	stroke: #F45846;
+	fill: #F45846;
+}
+
+/* Blue */
+
+.header.blue span {
+	color: #1CB3FF;
+}
+.shot-tallies .blue .bullet {
+	background: #1CB3FF;
+}
+line.barrier-goalie.blue,
+line.barrier-skater.blue,
+path.shot.blue,
+path.net.blue,
+circle.end-explosion.blue {
+	stroke: #1CB3FF;
+}
+circle.shot.blue {
+	stroke: #1CB3FF;
+	fill: #1CB3FF;
+}
+
+/* Yellow */
+
+.header.yellow span {
+	color: #EDB347;
+}
+.shot-tallies .yellow .bullet {
+	background: #EDB347;
+}
+line.barrier-goalie.yellow,
+line.barrier-skater.yellow,
+path.shot.yellow,
+path.net.yellow,
+circle.end-explosion.yellow {
+	stroke: #EDB347;
+}
+circle.shot.yellow {
+	stroke: #EDB347;
+	fill: #EDB347;
+}
+
+/* Green */
+
+.header.green span {
+	color: #45D16F;
+}
+.shot-tallies .green .bullet {
+	background: #45D16F;
+}
+line.barrier-goalie.green,
+line.barrier-skater.green,
+path.shot.green,
+path.net.green,
+circle.end-explosion.green {
+	stroke: #45D16F;
+}
+circle.shot.green {
+	stroke: #45D16F;
+	fill: #45D16F;
+}
+
+.shot-tallies .bullet.goal {
+	background: #fff !important;
+}

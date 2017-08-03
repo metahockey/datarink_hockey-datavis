@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>Live Game Report</title>
+	<link rel="stylesheet" type="text/css" href="live-game-report.css">
+	<script src="../d3.v4.min.js"></script>
+</head>
+<body>
+	<button onclick="fetchData();">Refresh</button>
+	<p id="message"></p>
+	<table class="player-stats" style="width: 100%;">
+		<thead>
+			<th width="40%">AWAY</th>
+			<th width="20%">Points</th>
+			<th width="10%">iC</th>
+			<th width="10%">G</th>
+			<th width="10%">C</th>
+			<th width="10%">TOI</th>
+		</thead>
+		<tbody>
+		</tbody>
+	</table>
+	<table class="player-stats" style="width: 100%;">
+		<thead>
+			<th width="40%">AWAY</th>
+			<th width="20%">Points</th>
+			<th width="10%">iC</th>
+			<th width="10%">G</th>
+			<th width="10%">C</th>
+			<th width="10%">TOI</th>
+		</thead>
+		<tbody>
+		</tbody>
+	</table>	
+</body>
+<script>
+
+var gameId = 20233;
+var pbpUrl = "http://www.nhl.com/scores/htmlreports/20162017/PL0" + gameId + ".HTM";
+var eventData = [];
+var playerData = [[], []];
+var teamData = [];
+var periodDurations = [];
+
+var highlightTableChanges = false;
+
+var isRegularSeasonGame = true;
+if (gameId > 30000) {
+	isRegularSeasonGame = false;
+}
+
+fetchData();
+
+function fetchData() {
+
+	// Reset data
+	eventData = [];
+	playerData = [[], []];
+	teamData = [];
+	periodDurations = [];
+	var maxPeriod = 0;
+
+	d3.html(pbpUrl, function(error, html) {
+		if (error) {
+			d3.select("#message").text("Error getting data.");
+			console.log("Error getting data: " + error);
+		} else {
+
+			//
+			// Parse and store team data
+			//
+
+			teamData.push(initializeTeamInformation(html.querySelector("#Visitor"), "away"));
+			teamData.push(initializeTeamInformation(html.querySelector("#Home"), "home"));
+
+			//
+			// Parse and store event data
+			//
+
+			var trs = html.querySelectorAll("tr.evenColor");
+			trs.forEach(function(tr) {
+
+				// Parse data in each of the event row's cells
+				var tds = tr.querySelectorAll("td.bborder");
+
+				var playId = parseInt(tds[0].innerHTML);
+				var period = parseInt(tds[1].innerHTML);
+				if (period > maxPeriod) {
+					maxPeriod = period;
+				}
+
+				var timeString = tds[3].innerHTML;
+				timeString = timeString.substring(0, timeString.indexOf("<br>"));
+				var mm = parseInt(timeString.substring(0, timeString.indexOf(":")));
+				var ss = parseInt(timeString.substring(timeString.indexOf(":") + 1));
+				var time = 60 * mm + ss;
+
+				var event = tds[4].innerHTML.toLowerCase();
+				var description = tds[5].innerHTML;
+
+				var strength = tds[2].innerHTML.toLowerCase();
+				if (strength === "&nbsp;") {
+					strength = null;
+				} else if (event === "block") {
+					// For blocked shots, the strength is officially recorded from the blocker's POV
+					// Flip this so it's from the shooter's POV
+					if (strength === "pp") {
+						strength = "sh";
+					} else if (strength === "sh") {
+						strength = "pp";
+					}
+				}
+
+				// Get the team and players responsible for the event
+				var team = getEventTeam(event, description);
+				var venue = null;
+				if (team != null) {
+					venue = teamData.find(function(d) { return d.abbreviation === team; }).venue;
+				}
+
+				// Away and home player information is stored in font elements
+				var awayOnIce = [];
+				tds[6].querySelectorAll("font").forEach(function(font) {
+					awayOnIce.push(parseInt(font.innerHTML));
+					initializePlayerData(font, "away");
+				});
+
+				var homeOnIce = [];
+				tds[7].querySelectorAll("font").forEach(function(font) {
+					homeOnIce.push(parseInt(font.innerHTML));
+					initializePlayerData(font, "home");
+				});
+
+				// Store parsed data
+				eventData.push({
+					playId: playId,
+					period: period,
+					strength: strength,
+					time: time,
+					event: event,
+					description: description,
+					team: team,
+					venue: venue,
+					awayOnIce: awayOnIce,
+					homeOnIce: homeOnIce
+				});
+			});
+			
+			// Calculate period durations
+			for (var i = 0; i < maxPeriod; i++) {
+				if (i <= 2) {
+					periodDurations.push(20 * 60);
+				} else if (isRegularSeasonGame) {
+					// Regular season games
+					if (i === 3) {
+						// OT
+						periodDurations.push(5 * 60);
+					} else if (i === 4) {
+						// SO
+						periodDurations.push(0);
+					}
+				} else if (!isRegularSeasonGame) {
+					// Playoff games
+					periodDurations.push(20 * 60);
+				}
+			}
+
+			calculateTeamAndPlayerStats();
+		}
+	});
+}
+
+function calculateTeamAndPlayerStats() {
+
+	eventData.forEach(function(ev, i) {
+
+		// Skip SO events
+		if (isRegularSeasonGame && ev.period > 4) {
+			return;
+		}
+
+		//
+		// Increment counts for individual stats: goals scored, assists, individual corsi, penalties
+		//
+
+		if (ev.event === "goal") {
+			// Increment goals and corsis for scorer
+			var string = ev.description.substring(ev.description.indexOf("#") + 1, ev.description.indexOf(", "));
+			var jersey = parseInt(string.substring(0, string.indexOf(" ")));
+			incrementPlayerStat(ev.venue, jersey, ev.strength + "_ig", 1);
+			incrementPlayerStat(ev.venue, jersey, ev.strength + "_ic", 1);
+
+			// Increment assists
+			var string = ev.description.substring(ev.description.indexOf("Assist"));
+			var strings = string.split("; ");
+			strings.forEach(function(s) {
+				var jerseyString = s.substring(s.indexOf("#") + 1);
+				var jersey = parseInt(jerseyString.substring(0, jerseyString.indexOf(" ")));
+				incrementPlayerStat(ev.venue, jersey, ev.strength + "_ia", 1);
+			});
+		} else if (ev.event === "shot" || ev.event === "block" || ev.event === "miss") {
+			// Increment corsis for shooter
+			var string = ev.description.substring(ev.description.indexOf("#") + 1);
+			var jersey = parseInt(string.substring(0, string.indexOf(" ")));
+			incrementPlayerStat(ev.venue, jersey, ev.strength + "_ic", 1);
+		}
+
+		//
+		// Increment counts for on-ice events: corsis, shots, goals
+		//
+
+		if (ev.event === "goal" || ev.event === "shot" || ev.event === "block" || ev.event === "miss") {
+
+			["home", "away"].forEach(function(venue) {
+
+				// Get arguments to increment stats
+				var strength = ev.strength;
+				var statSuffix = "f";
+
+				// If the team didn't the shot, then flip the strength and stat
+				if (venue !== ev.venue) {
+					statSuffix = "a";
+					if (strength === "pp") {
+						strength = "sh";
+					} else if (strength === "sh") {
+						strength = "pp";
+					}					
+				}
+
+				// Increment player stats
+				ev[venue + "OnIce"].forEach(function(playerJersey) {
+					incrementPlayerStat(venue, playerJersey, strength + "_c" + statSuffix, 1);
+					if (ev.event === "goal") {
+						incrementPlayerStat(venue, playerJersey, strength + "_g" + statSuffix, 1);
+						incrementPlayerStat(venue, playerJersey, strength + "_s" + statSuffix, 1);
+					} else if (ev.event === "shot") {
+						incrementPlayerStat(venue, playerJersey, strength + "_s" + statSuffix, 1);
+					}
+				});
+
+				// Increment team stats
+				incrementTeamStat(venue, strength + "_c" + statSuffix);
+				if (ev.event === "goal") {
+					incrementTeamStat(venue, strength + "_g" + statSuffix, 1);
+					incrementTeamStat(venue, strength + "_s" + statSuffix, 1);
+				} else if (ev.event === "shot") {
+					incrementTeamStat(venue, strength + "_s" + statSuffix, 1);
+				}
+			});
+		}
+
+		//
+		// Increment TOI for players and teams
+		//
+
+		var nextEv = eventData[i + 1];
+		if (nextEv && ev.period === nextEv.period && nextEv.time - ev.time > 0) {
+
+			["away", "home"].forEach(function(venue, teamIdx) {
+
+				// Get strength
+				var strength = "ev";
+				if (venue === "away") {
+					if (ev.awayOnIce.length > ev.homeOnIce.length) {
+						strength = "pp";
+					} else if (ev.awayOnIce.length < ev.homeOnIce.length) {
+						strength = "sh";
+					}
+				} else if (venue === "home") {
+					if (ev.homeOnIce.length > ev.awayOnIce.length) {
+						strength = "pp";
+					} else if (ev.homeOnIce.length < ev.awayOnIce.length) {
+						strength = "sh";
+					}
+				}
+
+				// Increment player TOI
+				ev[venue + "OnIce"].forEach(function(playerJersey) {
+					incrementPlayerStat(venue, playerJersey, strength + "_toi", nextEv.time - ev.time);
+				});
+
+				// Increment team TOI
+				incrementTeamStat(venue, strength + "_toi", nextEv.time - ev.time);
+				if (strength === "pp") {
+					teamData[teamIdx].ppTimeRanges.push([ev.period, ev.time, nextEv.time]);
+				}
+			});
+		}
+	});
+
+	renderTable();
+
+	//
+	// Increment the specified stat for the specified player
+	// venue: player's venue ('home', 'away')
+	// jersey: player's jersey number
+	// stat: stat to increment
+	//
+
+	function incrementPlayerStat(venue, jersey, stat, amount) {
+		var teamIdx = 0;
+		if (venue === "home") {
+			teamIdx = 1;
+		}
+		var player = playerData[teamIdx].find(function(d) { return d.jersey === jersey; });
+		player[stat] += amount;
+		return;
+	}
+
+	//
+	// Increment the specified stat for the specified team
+	// venue: 'home', 'away'
+	// stat: stat to increment
+	//
+
+	function incrementTeamStat(venue, stat) {
+		var teamIdx = 0;
+		if (venue === "home") {
+			teamIdx = 1;
+		}
+		teamData[teamIdx][stat]++;
+		return;
+	}
+}
+
+//
+//
+// Player information is stored in font elements
+// This function parses the information stored in the font element and creates a player object to record stats
+//
+//
+
+function initializePlayerData(fontElement, venue) {
+	var jersey = parseInt(fontElement.innerHTML);
+	var name = fontElement.title.substring(fontElement.title.indexOf(" - ") + 3).toLowerCase();
+	var position = fontElement.title.substring(0, fontElement.title.indexOf(" - ")).toLowerCase();	
+	position = position.substring(0, 1);
+	var player = {
+			jersey: jersey,
+			name: name,
+			position: position,
+			ev_cf: 0,
+			pp_cf: 0,
+			sh_cf: 0,
+			ev_ca: 0,
+			pp_ca: 0,
+			sh_ca: 0,
+			ev_sf: 0,
+			pp_sf: 0,
+			sh_sf: 0,
+			ev_sa: 0,
+			pp_sa: 0,
+			sh_sa: 0,
+			ev_gf: 0,
+			pp_gf: 0,
+			sh_gf: 0,
+			ev_ga: 0,
+			pp_ga: 0,
+			sh_ga: 0,
+			ev_toi: 0,
+			pp_toi: 0,
+			sh_toi: 0,
+			ev_ig: 0,
+			pp_ig: 0,
+			sh_ig: 0,
+			ev_ic: 0,
+			pp_ic: 0,
+			sh_ic: 0,
+			ev_ia: 0,
+			pp_ia: 0,
+			sh_ia: 0,
+		};
+
+	// Store player information
+	var idx = 0;
+	if (venue === "home") {
+		idx = 1;
+	}
+	if (!playerData[idx].find(function(d) { return d.jersey === jersey; })) {
+		playerData[idx].push(player);
+	}
+
+	return;
+}
+
+//
+//
+// Team information is stored in table elements
+// This function parses the information stored in the table element and creates a team object to record stats
+//
+//
+
+function initializeTeamInformation(tableElement, venue) {
+	var teamString = tableElement.querySelector('td[style="font-size: 10px;font-weight:bold"]').innerHTML;
+	var name = teamString.substring(0, teamString.indexOf("<br>")).toLowerCase();
+	var abbreviation;
+	if (name === "carolina hurricanes") { abbreviation = "car"; }
+	else if (name === "columbus blue jackets") { abbreviation = "cbj"; }
+	else if (name === "new jersey devils") { abbreviation = "njd"; }
+	else if (name === "new york islanders") { abbreviation = "nyi"; }
+	else if (name === "new york rangers") { abbreviation = "nyr"; }
+	else if (name === "philadelphia flyers") { abbreviation = "phi"; }
+	else if (name === "pittsburgh penguins") { abbreviation = "pit"; }
+	else if (name === "washington capitals") { abbreviation = "wsh"; }
+	else if (name === "boston bruins") { abbreviation = "bos"; }
+	else if (name === "buffalo sabres") { abbreviation = "buf"; }
+	else if (name === "detroit red wings") { abbreviation = "det"; }
+	else if (name === "florida panthers") { abbreviation = "fla"; }
+	else if (name === "montreal canadiens") { abbreviation = "mtl"; }
+	else if (name === "ottawa senators") { abbreviation = "ott"; }
+	else if (name === "tampa bay lightning") { abbreviation = "tbl"; }
+	else if (name === "toronto maple leafs") { abbreviation = "tor"; }
+	else if (name === "chicago blackhawks") { abbreviation = "chi"; }
+	else if (name === "colorado avalanche") { abbreviation = "col"; }
+	else if (name === "dallas stars") { abbreviation = "dal"; }
+	else if (name === "minnesota wild") { abbreviation = "min"; }
+	else if (name === "nashville predators") { abbreviation = "nsh"; }
+	else if (name === "st. louis blues") { abbreviation = "stl"; }
+	else if (name === "winnipeg jets") { abbreviation = "wpg"; }
+	else if (name === "anaheim ducks") { abbreviation = "ana"; }
+	else if (name === "arizona coyotes") { abbreviation = "ari"; }
+	else if (name === "calgary flames") { abbreviation = "cgy"; }
+	else if (name === "edmonton oilers") { abbreviation = "edm"; }
+	else if (name === "los angeles kings") { abbreviation = "lak"; }
+	else if (name === "san jose sharks") { abbreviation = "sjs"; }
+	else if (name === "vancouver canucks") { abbreviation = "van"; }
+	return {
+		venue: venue,
+		name: name,
+		abbreviation: abbreviation,
+		ev_cf: 0,
+		pp_cf: 0,
+		sh_cf: 0,
+		ev_ca: 0,
+		pp_ca: 0,
+		sh_ca: 0,
+		ev_sf: 0,
+		pp_sf: 0,
+		sh_sf: 0,
+		ev_sa: 0,
+		pp_sa: 0,
+		sh_sa: 0,
+		ev_gf: 0,
+		pp_gf: 0,
+		sh_gf: 0,
+		ev_ga: 0,
+		pp_ga: 0,
+		sh_ga: 0,
+		ev_toi: 0,
+		pp_toi: 0,
+		sh_toi: 0,
+		ppTimeRanges: []
+	}
+}
+
+//
+//
+// Get the team responsible for the event
+//
+//
+
+function getEventTeam(event, description) {
+	var team = null;
+	if (event === "shot" || event === "miss" || event === "block" || event === "goal") {
+		team = description.substring(0, description.indexOf(" "));
+	}
+	if (team) {
+		team = team.toLowerCase();
+	}
+	// Use new team abbreviations
+	if (team === "l.a") {
+		team = "lak";
+	} else if (team === "s.j") {
+		team = "sjs";
+	} else if (team === "t.b") {
+		team = "tbl";
+	} else if (team === "n.j") {
+		team = "njd";
+	}
+	return team;
+}
+
+
+//
+//
+// Update page elements
+//
+//
+
+function renderTable() {
+	var tables = d3.selectAll("table.player-stats")
+		.data(playerData);
+	var rows = tables.select("tbody").selectAll("tr")
+		.data(
+			function(d) {
+				return d.filter(function(p) { return p.position !== "g"; })
+					.sort(function(a, b) { return (b.ev_toi + b.pp_toi + b.sh_toi) - (a.ev_toi + a.pp_toi + a.sh_toi); }); 
+			},
+			function(d) { return d.jersey; }
+		);
+	rows = rows.enter().append("tr")
+		.merge(rows);
+	rows.exit().remove();
+
+	// TODO: Replace G and A columns with a Points columns
+	// Append badges for goals and assists (G) (A)
+	// Use dark fill with light text for even strength points
+	// Use yellow fill with dark text special teams points
+	// For data-previous, store and compare the total number of points
+
+	var cells = rows.selectAll("td")
+		.data(function(row) {
+			// Create an array of the player's points
+			var points = [];
+			["ev_ig", "pp_ig", "sh_ig", "ev_ia", "pp_ia", "sh_ia"].forEach(function(pointType) {
+				for (var i = 0; i < row[pointType]; i++) {
+					points.push(pointType);
+				}
+			});
+			return [
+				{ column: "player", value: [row.jersey, row.name, row.position] },
+				{ column: "points", value: points },
+				{ column: "c", value: row.ev_ic + row.pp_ic + row.sh_ic },
+				{ column: "gDiff", value: row.ev_gf + row.pp_gf + row.sh_gf - (row.ev_ga + row.pp_ga + row.sh_ga) },
+				{ column: "cDiff", value: row.ev_cf + row.pp_cf + row.sh_cf - (row.ev_ca + row.pp_ca + row.sh_ca) },
+				{ column: "toi", value: row.ev_toi + row.pp_toi + row.sh_toi },
+			];
+		});
+	cells = cells.enter().append("td")
+		.style("background-color", "#fff")
+		.attr("class", function(d) { 
+			return d.column;
+		})
+		.merge(cells)
+			.html(function(d) {
+				if (d.column === "player") {
+					// var name = d.value[1].substring(0, 1) + ".&nbsp;" +  d.value[1].substring(d.value[1].indexOf(" ") + 1);
+					var name = d.value[1].substring(d.value[1].indexOf(" ") + 1);
+					return "<span class='player-name'>" + name + "</span> "
+						//+ "<span class='player-jersey'>" + d.value[0] + "</span>"
+						+ "<span class='player-position'>(" + d.value[2] + ")</span>";
+						//return "<span class='player-name'>" + d.value[1] + "</span>";
+				} else if (d.column === "points") {
+					// Do nothing
+				} else if (d.column === "gDiff" || d.column === "cDiff") {
+					if (d.value > 0) {
+						return "+" + d.value;
+					} else {
+						return d.value;
+					}
+				} else if (d.column === "toi") {
+					// Format TOI as mm:ss
+					var mm = Math.floor(d.value / 60);
+					var ss = d.value - (60 * mm);
+					if (ss < 10) {
+						return mm + ":0" + ss;
+					} else {
+ 						return mm + ":" + ss;
+ 					}
+				} else {
+					return d.value;
+				}
+			})
+			.attr("data-previous", function(d) {
+				var newValue = d.value;
+				if (d.column === "points") {
+					newValue = d.value.length;
+				}
+				newValue = String(newValue);
+				if (highlightTableChanges) {
+					if (newValue !== d3.select(this).attr("data-previous")) {
+						d3.select(this).transition()
+							.style("background-color", "#fff3bf")
+							.on("end", function() {
+								d3.select(this).transition()
+									.delay(100)
+									.style("background-color", "#fff");
+							});
+					}
+				}
+				return newValue;
+			});
+
+	// Point badges
+	var badges = rows.selectAll("td.points").selectAll(".badge")
+		.data(function(d) { return d.value; });
+	badges.enter().append("span")
+		.merge(badges)
+			.attr("class", function(d) {
+				return "badge " + d;
+			})
+			.text(function(d) {
+				if (d === "ev_ig" || d === "sh_ig" || d === "pp_ig") {
+					return "G";
+				} else {
+					return "A";
+				}
+			});
+
+	// For the first render where the table gets appended, don't highlight changes
+	// For following renders, highlight changes
+	highlightTableChanges = true;
+}
+</script>
+</html>

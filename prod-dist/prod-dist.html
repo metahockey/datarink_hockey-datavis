@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<title>Player production</title>
+	<link href="http://fonts.googleapis.com/css?family=Roboto+Mono" rel="stylesheet" type="text/css">
+	<script src="../d3.v4.min.js" charset="utf-8"></script>
+	<style>
+	body {
+		font-family: "Roboto Mono", sans-serif;
+		color: #222;
+		margin-bottom: 12px;
+	}
+	h1, h2 {
+		font-size: 14px;
+		line-height: 20px;
+		font-weight: 400;
+		margin: 16px;
+		display: inline-block;
+		vertical-align: top;
+	}
+	h2 {
+		font-size: 12px;
+		float: right;
+		position: relative;
+	}
+	h2:before {
+		position: absolute;
+		content: " ";
+		width: 12px;
+		height: 12px;
+		/*background: #fc8d62;*/
+		background: #ef8a62;
+		left: -20px;
+		top: 4px;
+		/*opacity: 0.9;*/
+	}
+	.team.card {
+		display: inline-block;
+		margin: 12px 16px;
+	}
+	h3 {
+		font-size: 14px;
+		line-height: 16px;
+		font-weight: 400;
+		margin: 0;
+	}
+	.bar {
+		fill-opacity: 1;
+	}
+	.gridline {
+		stroke: #d2d2d2;
+		stroke-width: 1;
+		shape-rendering: crispEdges;
+	}
+	.label {
+		font-size: 11px;
+		text-anchor: end;
+		alignment-baseline: hanging;
+		fill: #666;
+	}
+	.dot {
+		fill: #222;
+		fill-opacity: 0.6;
+		stroke: none;
+	}
+	.sh-line {
+		stroke: #353b3b;
+		stroke-width: 1;
+		shape-rendering: crispEdges;
+	}
+	</style>
+</head>
+<body>
+	<div>
+		<h1>Top 15 goal scorers per team</h1>
+		<h2>Players shooting above 15%</h2>
+	</div>
+</body>
+<script>
+
+var teams;
+
+d3.json("players.json", function(error, json) {
+
+	var players = json.players;
+
+	// Calculate primary points for all players (all situations)
+	players.forEach(function(d) {
+		//d.p1 = d.stats.all.ig + d.stats.all.ia1;
+		d.p1 = d.stats.all.ig;
+		d.shPct = 100 * d.stats.all.ig / d.stats.all.is;
+	});
+
+	// Nest players by team
+	teams = d3.nest()
+		.key(function(d) { return d.teams[d.teams.length - 1]; })
+		.entries(json.players);
+
+	// Sort players by points in all situations
+	// Take the top X players for each team
+	// Store teams' total points
+	teams.forEach(function(t) {
+		t.values.sort(function(a, b) { return b.p1 - a.p1; });
+		t.values = t.values.slice(0, 15);
+		t.totalP1 = d3.sum(t.values, function(d) { return d.p1; });
+	});
+
+	// Sort teams by total points (descending)
+	teams.sort(function(a, b) { return b.totalP1 - a.totalP1; });
+
+	appendCards();
+});
+
+function appendCards() {
+
+	// Append cards
+	d3.select("body").selectAll(".team.card")
+		.data(teams)
+		.enter().append("div")
+		.attr("class", "team card");
+
+	appendCharts();
+}
+
+function appendCharts() {
+
+	// svg dimensions
+	var margin = {top: 4, right: 0, bottom: 0, left: 0};
+	var height = 80;
+	var width = 120;
+
+	// Set y scale
+	var maxP1 = d3.max(teams, function(t) {
+		return d3.max(t.values, function(p) {
+			return p.p1;
+		});
+	});
+	var y = d3.scaleLinear()
+		.domain([0, maxP1])
+		.range([height, 0]);
+
+	// Set x scale
+	var x = d3.scaleLinear()
+		.domain([0, 14])
+		.range([0, 112]);
+
+	// Append svgs
+	var svgs = d3.selectAll(".team.card").append("svg")
+		.attr("height", (height + margin.top + margin.bottom) + "px")
+		.attr("width", (width + margin.left + margin.right) + "px")
+		.append("g")
+			.attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+	// Append gridlines
+	var gridData = [10, 20, 30, 40];
+	var lines = svgs.selectAll(".gridline")
+		.data(gridData)
+		.enter().append("line")
+			.attr("class", "gridline")
+			.attr("x1", 0)
+			.attr("x2", width)
+			.attr("y1", function(d) { return y(d); })
+			.attr("y2", function(d) { return y(d); });
+
+	// Append gridline labels
+	var labels = d3.select(".team.card").select("svg").select("g").selectAll(".label")
+		.data(gridData)
+		.enter().append("text")
+			.attr("class", "label")
+			.attr("x", width)
+			.attr("y", function(d) { return y(d); })
+			.text(function(d) {
+				if (d === 40) {
+					return d + " goals"
+				} else if (d === 10) {
+					return "";
+				} else {
+					return d;
+				}
+			});
+
+	// Append bars
+	var bars = svgs.selectAll(".bar")
+		.data(function(t) { return t.values; })
+		.enter().append("rect")
+			.attr("class", "bar")
+			.attr("x", function(d, i) { return x(i); })
+			.attr("y", function(d) { return y(d.p1); })
+			.attr("height", function(d) { return height - y(d.p1); })
+			.attr("width", 7)
+			.style("fill", function(d) {
+				if (d.shPct >= 15) {
+					//return "#fc8d62";
+					return "#ef8a62";
+				} else {
+					//return "#53b286";
+					return "#67a9cf";
+				}
+			})
+			.append("title")
+				.text(function(d) { return d.first + " " + d.last + ": " + d.p1 + " @ " + Math.round(d.shPct) + "%"; });
+
+	// Append dots
+	/*
+	var dots = svgs.selectAll(".dot")
+		.data(function(t) { return t.values; })
+		.enter().append("circle")
+			.attr("class", "dot")
+			.attr("cx", function(d, i) { return x(i) + 3.5; })
+			.attr("cy", function(d) { return y(d.shPct); })
+			.attr("height", function(d) { return height - y(d.shPct); })
+			.attr("r", 1.5)
+			.append("title")
+				.text(function(d) { return d.first + " " + d.last + ": " + d.shPct; });
+	*/
+
+	// Append lines
+	/*
+	var shLines = svgs.selectAll(".sh-line")
+		.data(function(t) { return t.values; })
+		.enter().append("line")
+			.attr("class", "sh-line")
+			.attr("x1", function(d, i) { return x(i) + 3.5; })
+			.attr("x2", function(d, i) { return x(i) + 3.5; })
+			.attr("y1", function(d) { return y(d.shPct); })
+			.attr("y2", function(d) { return y(10); })
+			.append("title")
+				.text(function(d) { return d.first + " " + d.last + ": " + d.shPct; });
+	*/
+
+	appendTitles();
+}
+
+function appendTitles() {
+	d3.selectAll(".card").append("h3")
+		.text(function(d, i) {
+			return d.key.toUpperCase() + " " + d.totalP1 + "G";
+		});
+}
+</script>
+</html>

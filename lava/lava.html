@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <script src="../d3.v4.min.js"></script>
+    <link href="https://fonts.googleapis.com/css?family=Roboto+Mono" rel="stylesheet">
+    <style>
+      circle {
+        /*fill: #FF725C;*/
+        fill: #ff5c49;
+      }
+      body {
+      	margin: 40px;
+      }
+      body,
+      svg {
+        /*background: #37474F;*/
+        background: #343334;
+      }
+      svg {
+      	outline: 1px solid #ff00ff;
+      }
+      .text {
+      	position: absolute;
+      	top: 24px;
+      	left: 20px;
+      }
+      .text span {
+      	font-family: 'Roboto Mono';
+      	color: #fff;
+      	font-size: 56px;
+      	line-height: 64px;
+      	font-weight: 700;
+      	display: block;
+      	width: 240px;
+      }
+    </style>
+  </head>
+  <body>
+  	<div style="position: relative;">
+	  	<div class="text">
+	  		<span>MTTHWS</span>
+	  		<span>NYLNDR</span>
+	  		<span>MRNR</span>
+	  	</div>
+	    <svg>
+	      <defs>
+	        <filter id="gooeyFilter">
+	          <feGaussianBlur
+	            in="SourceGraphic"
+	            stdDeviation="6"
+	            color-interpolation-filters="sRGB"
+	            result="blur">
+	          </feGaussianBlur>
+	          <feColorMatrix
+	            in="blur"
+	            mode="matrix"
+	            values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 19 -9"
+	            result="gooey">
+	          </feColorMatrix>
+	        </filter>
+	      </defs>
+	    </svg>
+	  </div>
+  </body>
+  <script>
+
+    // Initialize svg
+    const height = 240;
+    const width = 240;
+    const margin = { top: 4, right: 4, bottom: 4, left: 4 };
+    const svg = d3.select('svg')
+        .attr('height', height + margin.top + margin.bottom)
+        .attr('width', width + margin.left + margin.right)
+      .append('g')
+        .attr('transform', 'translate(' + margin.left + ',' + margin.top +')')
+        .style('filter', 'url(#gooeyFilter)');
+
+    // Generate circle positions
+    let data = [];
+    for (let tick = 0; tick <= 600; tick++) {
+    	let numPoints = Math.round(2 * Math.random() + 1);
+    	for (let i = 0; i <= numPoints; i++) {
+	      let point = {
+	        position: [0, 0],
+	        delay: 0
+	      };
+	      point.position[0] = -30;
+	      point.position[1] = Math.random() * height;
+	      point.delay = (tick * 200) + (Math.random() * 100 - 50);
+	      data.push(point);
+    	}
+    }
+
+    // Append circles
+    let circles = svg.selectAll('circle')
+        .data(data)
+      .enter().append('circle')
+        .attr('cx', d => d.position[0])
+        .attr('cy', d => d.position[1])
+        .attr('r', () => 8 + Math.random() * 20)
+        .attr('opacity', 0.9)
+        .each(appear);
+
+    function appear(d) {
+    	d3.select(this).transition()
+    		.duration(50)
+    		.delay(d => d.delay)
+    		.attr('opacity', 1)
+    		.on('end', move);
+    }
+
+    // Transition circles
+    function move() {
+      let el = d3.select(this);
+
+      if (el.attr("cx") > width + 30) {
+      	el.remove();
+      } else {
+	      let moveTo = [
+	        parseFloat(el.attr("cx")) + 100,
+	        parseFloat(el.attr("cy")) + 40 * Math.random() - 20
+	      ];
+
+	      el.transition()
+	        .ease(d3.easeLinear)
+	        .duration(1200 + 600 * Math.random())
+	        .attr('cx', moveTo[0])
+	        .attr('cy', moveTo[1])
+	        .attr('r', () => Math.max(8, parseFloat(el.attr('r')) + Math.random() * 10 - 5))
+	        .on('end', move);
+	    }
+    }
+  </script>
+</html>

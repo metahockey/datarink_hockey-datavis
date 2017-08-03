@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<title>Team Performance</title>
+	<link rel="stylesheet" type="text/css" href="team-lines.css">
+	<script src="../d3.min.js" charset="utf-8"></script>
+</head>
+<body>
+	<svg class="scatter">
+	</svg>
+	<svg class="matrix">
+	</svg>
+</body>
+<script>
+
+	var jsonUrl = "http://localhost:5000/api/lines?team=stl&season=20152016";
+	var lineData;
+	var playerData;
+
+	var scH = 200;
+	var scW = 600;
+	var scM = { top: 12, right: 20, bottom: 28, left: 120 };
+
+	var maH = 300;
+	var maW = scW;
+	var maM = { top: 12, right: 20, bottom: 12, left: 120 };
+	
+	var scatter = d3.select("svg.scatter")
+		.attr("width", scW + scM.left + scM.right)
+		.attr("height", scH + scM.top + scM.bottom)
+		.append("g")
+			.attr("transform", "translate(" + scM.left + "," + scM.top + ")");
+
+	var matrix = d3.select("svg.matrix")
+		.attr("width", maW + maM.left + maM.right)
+		.attr("height", maH + maM.top + maM.bottom)
+		.append("g")
+			.attr("transform", "translate(" + maM.left + "," + maM.top + ")");
+
+	d3.json(jsonUrl, function(error, json) {
+		lineData = json.lines;
+		playerData = json.players;
+
+		//
+		// Filter lines with low toi
+		// Calculate cf% for each line
+		//
+
+		lineData = lineData.filter(function(d) { return d.toi > 60 * 60; });
+		lineData.forEach(function(d) {
+			d.cfAdjPct = d.cfAdj / (d.cfAdj + d.caAdj);
+		});
+
+		//
+		// Only keep players listed in at least 1 line
+		// Sort players from highest to lowest toi
+		//
+
+		playerData = playerData.filter(function(d) {
+			var inLines = lineData.filter(function(l) {
+				return l.players.indexOf(d.id) >= 0;
+			});
+			if (inLines.length > 0) { return true; }
+			else { return false; }
+		});
+		playerData.sort(function(a, b) { return b.toi - a.toi; });
+
+		appendPlot();
+	});
+
+	function appendPlot() {
+
+		//
+		//
+		// Set scatterplot scales
+		//
+		//
+
+		//var extent = d3.extent(lineData, function(d) { return d.cfAdjPct; });
+		var extent = [0.4, 0.65];
+		var x = d3.scale.linear()
+			.domain(extent)
+			.range([0, scW]);
+
+		var maxToi = d3.max(lineData, function(d) { return d.toi; });
+		maxToi = 60 * 60 * Math.ceil(maxToi / (60 * 60));
+		var scY = d3.scale.linear()
+			.domain([0, maxToi])
+			.range([scH, 0]);
+
+		//
+		// Plot axes
+		//
+
+		// x-axis baseline
+		scatter.append("line")
+			.attr("class", "axis")
+			.attr("x1", x.range()[0])
+			.attr("x2", x.range()[1])
+			.attr("y1", scY.range()[0])
+			.attr("y2", scY.range()[0]);
+
+		// x-axis ticks
+		var tickData = [0.4, 0.45, 0.5, 0.55, 0.6, 0.65];
+		var ticks = scatter.selectAll("line.tick.x-axis")
+			.data(tickData);
+		ticks.enter().append("line")
+			.attr("class", "tick x-axis")
+			.attr("x1", function(d) { return x(d); })
+			.attr("x2", function(d) { return x(d); })
+			.attr("y1", scY.range()[0] - 4)
+			.attr("y2", scY.range()[0] + 4);
+		var tickLabels = scatter.selectAll("text.tick.x-axis")
+			.data(tickData);
+		tickLabels.enter().append("text")
+			.attr("class", "tick x-axis")
+			.attr("x", function(d) { return x(d); })
+			.attr("y", scY.range()[0] + 16)
+			.text(function(d) { return Math.round(d * 100) + "%"; });
+
+		// x-axis title
+		scatter.append("text")
+			.attr("class", "x-axis-title")
+			.attr("x", x(tickData[0]) + 13)
+			.attr("y", scY.range()[0] + 16)
+			.text("corsi for");
+
+		// y-axis ticks
+		var tickData = d3.range(60 * 60, scY.domain()[1] + 10, 60 * 60)
+		var ticks = scatter.selectAll("line.tick.y-axis")
+			.data(tickData);
+		ticks.enter().append("line")
+			.attr("class", "tick y-axis")
+			.attr("x1", x.range()[0])
+			.attr("x2", x.range()[0] + 8)
+			.attr("y1", function(d) { return scY(d); })
+			.attr("y2", function(d) { return scY(d); });
+		var tickLabels = scatter.selectAll("text.tick.y-axis")
+			.data(tickData);
+		tickLabels.enter().append("text")
+			.attr("class", "tick y-axis")
+			.attr("x", x.range()[0] - 10)
+			.attr("y", function(d) { return scY(d); })
+			.text(function(d, i) {
+				var outStr = Math.round(d / (60 * 60));
+				if (i === tickData.length - 1) {
+					return "hours played " + outStr;
+				} else {
+					return outStr;
+				}
+			});
+
+
+		//
+		// Plot combos
+		//
+
+		var lines = scatter.selectAll("line.combo")
+			.data(lineData);
+		lines.enter().append("line")
+			.attr("class", "combo")
+			.attr("x1", function(d) { return x(d.cfAdjPct); })
+			.attr("x2", function(d) { return x(d.cfAdjPct); })
+			.attr("y1", scH + scM.bottom)
+			.attr("y2", function(d) { return scY(d.toi); });
+
+		var dots = scatter.selectAll("circle.combo")
+			.data(lineData);
+		dots.enter().append("circle")
+			.attr("class", "combo")
+			.attr("r", 2)
+			.attr("cx", function(d) { return x(d.cfAdjPct); })
+			.attr("cy", function(d) { return scY(d.toi); });
+
+		//
+		//
+		// Set matrix y-scale
+		//
+		//
+
+		var maY = d3.scale.ordinal()
+			.domain(playerData.map(function(d) { return d.id; }))
+			.rangePoints([0, maH]);
+
+		var labels = matrix.selectAll("text.label")
+			.data(playerData);
+		labels.enter().append("text")
+			.attr("class", "label")
+			.attr("x", -maM.left + 10)
+			.attr("y", function(d) { return maY(d.id); })
+			.text(function(d) { return d.firstName.substring(0, 1) + ". " + d.lastName; });
+
+		var groups = matrix.selectAll("g.combo")
+			.data(lineData);
+		groups.enter().append("g")
+			.attr("class", "combo")
+			.attr("transform", function(d) { return "translate(" + x(d.cfAdjPct) + ",0)"; });
+
+		var lines = groups.append("line")
+			.attr("class", "combo")
+			.attr("x1", 0)
+			.attr("x2", 0)
+			.attr("y1", -maM.top)
+			.attr("y2", maH);
+
+		var dots = groups.selectAll("circle.player")
+			.data(function(d) { return d.players; });
+		dots.enter().append("circle")
+			.attr("class", "player")
+			.attr("r", 2)
+			.attr("cx", 0)
+			.attr("cy", function(d) { return maY(d); });
+
+	}
+
+</script>
+</html>

@@ -1,0 +1,11 @@
+body {
+	font-family: apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif;
+	font-size: 14px;
+	line-height: 20px;
+}
+
+.team {
+	display: inline-block;
+	vertical-align: top;
+	margin: 16px;
+}
